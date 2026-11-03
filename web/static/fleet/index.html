@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Metala Fleet</title>
+<link rel="stylesheet" href="/vendor/maplibre-gl-4.7.1/maplibre-gl.css">
+<link rel="stylesheet" href="/shared/metala.css">
+<script src="/vendor/maplibre-gl-4.7.1/maplibre-gl.js"></script>
+<style>
+  .login-wrap { min-height: 100dvh; display: flex; align-items: center; justify-content: center; padding: 16px; background: linear-gradient(160deg, #063a2f, #0b5d4b); }
+  .login-card { width: min(420px, 100%); }
+  .login-card h1 { margin: 0; font-size: 24px; }
+  .demo-acc { display: grid; gap: 8px; margin-top: 16px; }
+  .demo-acc button { text-align: left; border: 1px solid var(--line); background: #fafbfb; border-radius: 10px; padding: 10px 12px; }
+  .demo-acc button:hover { border-color: var(--brand-2); }
+  .layout { display: grid; grid-template-columns: 230px 1fr; min-height: 100dvh; }
+  aside { background: #062f27; color: #cfe3dd; padding: 18px 12px; display: flex; flex-direction: column; gap: 4px; }
+  aside .logo { font-weight: 900; letter-spacing: .16em; color: #fff; padding: 0 10px 2px; font-size: 18px; }
+  aside .logo small { display: block; font-size: 11px; letter-spacing: .08em; color: #6ee7b7; font-weight: 700; margin-top: 2px; }
+  aside nav { margin-top: 18px; display: flex; flex-direction: column; gap: 2px; }
+  aside nav button { text-align: left; background: none; border: 0; color: #cfe3dd; padding: 10px 12px; border-radius: 9px; font-weight: 600; }
+  aside nav button.active, aside nav button:hover { background: rgba(255,255,255,.08); color: #fff; }
+  aside .who { margin-top: auto; font-size: 12px; padding: 10px; border-top: 1px solid rgba(255,255,255,.1); }
+  main { padding: 22px 26px 40px; min-width: 0; }
+  .head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+  .head h2 { margin: 0; font-size: 22px; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .kpi .lbl { font-size: 12px; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+  .kpi .val { font-size: 22px; white-space: nowrap; font-weight: 800; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .kpi .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .grid2 { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; }
+  #fleet-map { height: 420px; border-radius: 12px; overflow: hidden; }
+  .fbar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; margin: 10px 0 6px; background: #e5e7eb; }
+  .fbar i { display: block; height: 100%; }
+  .card h3 { margin: 0 0 10px; font-size: 15px; }
+  .recon { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+  .recon table td:last-child { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .check-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid #f0f2f1; font-size: 14px; }
+  .scroll-x { overflow-x: auto; }
+  @media (max-width: 860px) {
+    .layout { grid-template-columns: 1fr; }
+    aside { flex-direction: row; flex-wrap: wrap; align-items: center; padding: 10px; }
+    aside nav { flex-direction: row; flex-wrap: wrap; margin: 0; }
+    aside .who { display: none; }
+    main { padding: 16px; }
+    .grid2 { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="demo-banner"><strong>Démo</strong> — opérateurs fictifs, GPS et montées simulés · <a href="/">accueil du prototype</a></div>
+
+<section id="login" class="login-wrap">
+  <div class="card login-card">
+    <div class="muted small" style="font-weight:800;letter-spacing:.12em">METALA FLEET</div>
+    <h1>Portail opérateur</h1>
+    <p class="muted small">Lignes, flotte, GPS, validations, recettes et rapprochement.</p>
+    <div class="field"><label for="u">Identifiant</label><input id="u" autocomplete="username"></div>
+    <div class="field"><label for="pw">Mot de passe</label><input id="pw" type="password" autocomplete="current-password"></div>
+    <button class="btn block" id="btn-login">Se connecter</button>
+    <div class="demo-acc" id="demo-acc"></div>
+  </div>
+</section>
+
+<section id="app" class="layout hidden">
+  <aside>
+    <div class="logo">METALA<small>FLEET</small></div>
+    <nav id="nav">
+      <button data-v="dash" class="active">Tableau de bord</button>
+      <button data-v="vehicles">Flotte & terminaux</button>
+      <button data-v="validations">Validations</button>
+      <button data-v="recon">Recettes & rapprochement</button>
+      <button data-v="cards" id="nav-cards" class="hidden">Cartes Metala Pass</button>
+    </nav>
+    <div class="who"><div id="who"></div><button class="btn ghost small" id="logout" style="color:#6ee7b7;padding-left:0">Se déconnecter</button></div>
+  </aside>
+  <main>
+    <div class="head">
+      <h2 id="view-title">Tableau de bord</h2>
+      <div class="row">
+        <select id="op-filter" class="hidden" style="padding:8px 10px;border-radius:9px;border:1px solid #d1d5db"></select>
+        <span class="badge sim">Données simulées</span>
+        <span class="small muted" id="updated"></span>
+      </div>
+    </div>
+    <div id="v-dash"></div>
+    <div id="v-map-wrap" class="card" style="padding:8px;margin-top:16px"><div id="fleet-map"></div></div>
+    <div id="v-vehicles" class="hidden"></div>
+    <div id="v-validations" class="hidden"></div>
+    <div id="v-recon" class="hidden"></div>
+    <div id="v-cards" class="hidden"></div>
+  </main>
+</section>
+<script type="module" src="fleet.js"></script>
+</body>
+</html>

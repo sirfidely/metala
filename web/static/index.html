@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Metala · Prototype</title>
+<link rel="stylesheet" href="/shared/metala.css">
+<style>
+  .hero { background: linear-gradient(135deg, #063a2f, #0b5d4b 55%, #0e7c66); color: #fff; padding: 56px 20px 72px; }
+  .wrap { max-width: 1040px; margin: 0 auto; }
+  .brand { font-weight: 900; letter-spacing: .12em; font-size: 14px; opacity: .85; }
+  h1 { font-size: clamp(32px, 6vw, 52px); margin: 10px 0 6px; letter-spacing: -.02em; }
+  .tag { font-size: 20px; opacity: .9; margin: 0 0 18px; }
+  .lead { max-width: 640px; opacity: .85; line-height: 1.55; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-top: -40px; }
+  .app { text-decoration: none; color: inherit; display: flex; flex-direction: column; gap: 8px; transition: transform .15s; }
+  .app:hover { transform: translateY(-2px); }
+  .app .ico { width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 22px; color: #fff; }
+  .app h3 { margin: 6px 0 0; }
+  .app p { margin: 0; color: var(--muted); line-height: 1.45; font-size: 14px; }
+  .app .who { font-size: 12px; font-weight: 700; color: var(--brand-2); text-transform: uppercase; letter-spacing: .05em; }
+  section { margin: 34px auto; }
+  h2 { font-size: 20px; margin: 0 0 12px; }
+  .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+  ul { padding-left: 18px; line-height: 1.6; margin: 0; }
+  code { background: #eef2f1; padding: 1px 6px; border-radius: 6px; font-size: 13px; }
+  footer { text-align: center; color: var(--muted); font-size: 13px; padding: 30px 16px 50px; }
+</style>
+</head>
+<body>
+<div class="demo-banner"><strong>Prototype de démonstration</strong> — opérateurs, lignes, voyageurs et positions GPS sont <strong>fictifs ou simulés</strong>. Aucun paiement réel.</div>
+<header class="hero">
+  <div class="wrap">
+    <div class="brand">GENIUS GROUPS · METALA</div>
+    <h1>Votre ville. Votre mobilité.</h1>
+    <p class="tag">Une plateforme, plusieurs opérateurs, une expérience de mobilité unifiée.</p>
+    <p class="lead">Ce prototype démontre la boucle complète du MVP : <strong>informer, vendre, valider, rapprocher</strong> — sur le périmètre du pilote proposé (2 opérateurs, 10 véhicules, 2 corridors du Grand Abidjan).</p>
+  </div>
+</header>
+<main class="wrap" style="padding: 0 16px;">
+  <div class="grid">
+    <a class="card app" href="/app/">
+      <div class="ico" style="background:#0e7c66">🗺️</div>
+      <span class="who">Voyageurs</span>
+      <h3>Metala App</h3>
+      <p>Carte en direct, arrivées estimées avec fraîcheur GPS, achat de titres, réservation, Metala Pass et historique.</p>
+    </a>
+    <a class="card app" href="/scan/">
+      <div class="ico" style="background:#111827">📶</div>
+      <span class="who">Conducteurs, contrôleurs</span>
+      <h3>Metala Scan</h3>
+      <p>Valideur NFC embarqué : preuve cryptographique dynamique, décision serveur, anti double débit, refus explicite hors réseau.</p>
+    </a>
+    <a class="card app" href="/fleet/">
+      <div class="ico" style="background:#c2410c">📊</div>
+      <span class="who">Opérateurs de transport</span>
+      <h3>Metala Fleet</h3>
+      <p>Pilotage : flotte et GPS, validations, fréquentation, recettes, rapprochement PSP ↔ titres ↔ grand livre.</p>
+    </a>
+  </div>
+
+  <section class="cols">
+    <div class="card">
+      <h2>Parcours de démonstration</h2>
+      <ul>
+        <li><strong>App</strong> : connectez-vous avec <code>07 00 00 00 01</code> (Awa, fictive) — le code OTP s’affiche à l’écran.</li>
+        <li>Repérez la ligne <strong>M2</strong>, touchez un arrêt pour voir les arrivées estimées.</li>
+        <li><strong>Scan</strong> : choisissez un bus M2, présentez la carte d’Awa → <em>« Validé — 18 trajets restants »</em>.</li>
+        <li>Re-présentez-la : <em>« Déjà validé — aucun débit »</em>. Essayez la carte clonée (UID seul) ou coupez le réseau.</li>
+        <li><strong>Fleet</strong> : <code>fleet@lagune.demo</code> / <code>metala-demo</code> — validations, recettes et rapprochement à zéro écart.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h2>Ce que le prototype respecte</h2>
+      <ul>
+        <li>La décision de montée est <strong>toujours prise par le serveur</strong> ; jamais d’UID seul.</li>
+        <li>Fraîcheur GPS affichée : fraîche &lt; 30 s, retardée 30–120 s, inconnue &gt; 120 s (grisée, sans ETA).</li>
+        <li>Isolation stricte par <code>operator_id</code> et minimisation des données de trajet.</li>
+        <li>Webhook PSP signé et idempotent, grand livre en partie double.</li>
+        <li>Toute donnée simulée est étiquetée <span class="badge sim">Simulé</span>.</li>
+      </ul>
+    </div>
+  </section>
+</main>
+<footer>Metala — prototype MVP · cahier des charges v1.0 · données cartographiques © contributeurs OpenStreetMap</footer>
+</body>
+</html>
