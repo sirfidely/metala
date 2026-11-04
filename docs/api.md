@@ -35,6 +35,9 @@ Erreurs : `{"error": "..."}` avec un code 400, 401, 403, 404 ou 409.
 | GET | `/api/me/reservations` | réservations |
 | POST | `/api/reservations` | `{departure_id}` (renvoie 409 si le départ est complet) |
 | DELETE | `/api/reservations/{id}` | annulation |
+| POST | `/api/me/cards/{uid}/block` | le voyageur bloque sa carte perdue (le solde est conservé) |
+
+Le catalogue contient aussi des recharges du porte-monnaie (`kind: "wallet"`, sans opérateur). Plafond : 20 000 FCFA.
 
 ## PSP
 
@@ -48,10 +51,13 @@ Erreurs : `{"error": "..."}` avec un code 400, 401, 403, 404 ou 409.
 |---|---|---|
 | POST | `/api/scan/challenge` | → `{challenge, expires_at}` |
 | POST | `/api/scan/validate` | `{tap_id, card_uid, challenge, proof}` → validation (`accepted` \| `already_validated` \| `rejected`, `reason`, `message`, `trips_remaining`) |
+| GET | `/api/scan/config` | tarif porte-monnaie et liste noire, pour décider hors ligne |
+| POST | `/api/scan/offline-sync` | `{txs: [OfflineTx]}` → `{synced, duplicates, rejected}` ; signature de la puce vérifiée, idempotent par (carte, compteur) |
 | POST | `/api/telemetry` | `{lat, lon, speed_kmh, heading, direction, recorded_at}` |
 
 Valeurs de `reason` en cas de refus : `uid_only`, `bad_challenge`, `replay`, `challenge_expired`, `unknown_card`,
-`bad_proof`, `card_revoked`, `title_expired`, `no_title`.
+`bad_proof`, `card_revoked`, `title_expired`, `no_title`, `insufficient_balance`.
+Une validation payée par le porte-monnaie porte `source: "wallet"` et `wallet_balance` ; une validation hors ligne synchronisée porte `offline: true`.
 
 ## Metala Fleet (`operator_admin`, `platform_admin`)
 
@@ -75,3 +81,5 @@ Ces routes ne sont pas exposées si `METALA_ENV=production`.
 | GET | `/api/dev/inventory` | terminaux (avec secrets), cartes, comptes de démonstration |
 | POST | `/api/dev/cards/{uid}/respond` | joue le rôle de la puce : `{challenge}` → `{proof}` |
 | POST | `/api/dev/psp/{payment_id}/confirm?status=succeeded\|failed&duplicate=1` | joue le rôle du PSP |
+| POST | `/api/dev/cards/{uid}/offline-debit` | joue le rôle de la puce lors d’un débit hors ligne : `{device_id, amount}` → transaction signée |
+| POST | `/api/dev/reset` | remet la démonstration à zéro (utilisé par la démo guidée) |

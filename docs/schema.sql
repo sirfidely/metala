@@ -90,13 +90,28 @@ CREATE TABLE cards (
   traveler_id  text REFERENCES travelers(id),
   status       text NOT NULL CHECK (status IN ('active', 'revoked')),
   key_version  int  NOT NULL DEFAULT 1, -- version de la clé maître de diversification
-  issued_at    timestamptz NOT NULL DEFAULT now()
+  issued_at    timestamptz NOT NULL DEFAULT now(),
+  balance      bigint NOT NULL DEFAULT 0 CHECK (balance BETWEEN 0 AND 20000), -- miroir du porte-monnaie de la puce
+  counter      int    NOT NULL DEFAULT 0                                       -- compteur de transactions de la puce
+);
+
+-- Transactions hors ligne remontées par les valideurs (porte-monnaie).
+CREATE TABLE offline_transactions (
+  card_uid     text   NOT NULL REFERENCES cards(uid),
+  counter      int    NOT NULL,
+  amount       bigint NOT NULL CHECK (amount > 0),
+  device_id    text   NOT NULL REFERENCES devices(id),
+  at           timestamptz NOT NULL,
+  cert         text   NOT NULL,          -- signature de la puce
+  synced_at    timestamptz NOT NULL DEFAULT now(),
+  validation_id text  NOT NULL,
+  PRIMARY KEY (card_uid, counter)        -- une transaction ne peut être comptée qu'une fois
 );
 
 -- Billettique ---------------------------------------------------------------
 CREATE TABLE products (
   id             text PRIMARY KEY,
-  operator_id    text NOT NULL REFERENCES operators(id),
+  operator_id    text REFERENCES operators(id), -- NULL pour les recharges du porte-monnaie
   name           text NOT NULL,
   kind           text NOT NULL CHECK (kind IN ('single', 'carnet', 'monthly')),
   trips          int  NOT NULL DEFAULT 0,
@@ -161,15 +176,15 @@ CREATE INDEX validations_card_at_idx ON validations (card_uid, at DESC);
 CREATE TABLE ledger_entries (
   id           text PRIMARY KEY,
   at           timestamptz NOT NULL DEFAULT now(),
-  kind         text NOT NULL CHECK (kind IN ('sale', 'usage')),
-  operator_id  text NOT NULL REFERENCES operators(id),
+  kind         text NOT NULL CHECK (kind IN ('sale', 'wallet_load', 'usage')),
+  operator_id  text REFERENCES operators(id),
   ref          text NOT NULL,
   UNIQUE (kind, ref)
 );
 
 CREATE TABLE ledger_lines (
   entry_id  text NOT NULL REFERENCES ledger_entries(id),
-  account   text NOT NULL CHECK (account IN ('psp_clearing', 'titles_liability', 'operator_revenue', 'metala_commission')),
+  account   text NOT NULL CHECK (account IN ('psp_clearing', 'titles_liability', 'wallet_liability', 'operator_revenue', 'metala_commission')),
   debit     bigint NOT NULL DEFAULT 0 CHECK (debit >= 0),
   credit    bigint NOT NULL DEFAULT 0 CHECK (credit >= 0)
 );

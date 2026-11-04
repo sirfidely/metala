@@ -180,6 +180,13 @@ type Reconciliation struct {
 	TitlesValueRemaining int64 `json:"titles_value_remaining"` // registre des titres
 	OperatorRevenue      int64 `json:"operator_revenue"`
 	MetalaCommission     int64 `json:"metala_commission"`
+	// Porte-monnaie (vue globale uniquement pour les soldes des cartes)
+	WalletLoads         int   `json:"wallet_loads"`
+	WalletLedger        int64 `json:"wallet_ledger"`         // solde net du compte porte-monnaie (périmètre)
+	WalletCards         int64 `json:"wallet_cards"`          // somme des soldes des puces
+	OfflinePending      int64 `json:"offline_pending"`       // débits hors ligne non remontés
+	OfflinePendingCount int   `json:"offline_pending_count"` // nombre de ces débits
+	OfflineSynced       int   `json:"offline_synced"`
 	// Écarts (doivent être nuls)
 	Discrepancies []string `json:"discrepancies"`
 	Balanced      bool     `json:"balanced"`
@@ -202,6 +209,9 @@ func (p *Platform) reconcileLocked(op string) *Reconciliation {
 		if in(pay.OperatorID) && pay.Status == PaymentSucceeded {
 			r.PSPSucceededCount++
 			r.PSPSucceededTotal += pay.Amount
+			if prod := p.products[pay.ProductID]; prod != nil && prod.Kind == ProductWallet {
+				r.WalletLoads++
+			}
 		}
 	}
 	for _, t := range p.titles {
@@ -213,6 +223,16 @@ func (p *Platform) reconcileLocked(op string) *Reconciliation {
 	for _, v := range p.validations {
 		if in(v.OperatorID) && v.Status == ValAccepted && v.Debited > 0 {
 			r.DebitingValidations++
+			if v.Offline {
+				r.OfflineSynced++
+			}
+		}
+	}
+	for _, c := range p.cards {
+		r.WalletCards += c.Balance
+		for _, a := range c.pendingOffline {
+			r.OfflinePending += a
+			r.OfflinePendingCount++
 		}
 	}
 	for _, e := range p.ledger {
@@ -220,7 +240,7 @@ func (p *Platform) reconcileLocked(op string) *Reconciliation {
 			continue
 		}
 		switch e.Kind {
-		case "sale":
+		case "sale", "wallet_load":
 			r.LedgerSalesCount++
 		case "usage":
 			r.LedgerUsageCount++
@@ -234,6 +254,11 @@ func (p *Platform) reconcileLocked(op string) *Reconciliation {
 				if e.Kind == "usage" {
 					r.LedgerUsageTotal += l.Debit
 				}
+			case AccWalletLiability:
+				r.WalletLedger += l.Credit - l.Debit
+				if e.Kind == "usage" {
+					r.LedgerUsageTotal += l.Debit
+				}
 			case AccOperatorRevenue:
 				r.OperatorRevenue += l.Credit - l.Debit
 			case AccMetalaCommission:
@@ -244,8 +269,8 @@ func (p *Platform) reconcileLocked(op string) *Reconciliation {
 	if r.PSPSucceededCount != r.LedgerSalesCount || r.PSPSucceededTotal != r.LedgerSalesTotal {
 		r.Discrepancies = append(r.Discrepancies, "ventes PSP ≠ ventes au grand livre")
 	}
-	if r.PSPSucceededCount != r.TitlesIssued {
-		r.Discrepancies = append(r.Discrepancies, "paiements réussis ≠ titres émis")
+	if r.PSPSucceededCount != r.TitlesIssued+r.WalletLoads {
+		r.Discrepancies = append(r.Discrepancies, "paiements réussis ≠ titres émis + recharges")
 	}
 	if r.DebitingValidations != r.LedgerUsageCount {
 		r.Discrepancies = append(r.Discrepancies, "validations débitrices ≠ écritures de consommation")
@@ -253,7 +278,10 @@ func (p *Platform) reconcileLocked(op string) *Reconciliation {
 	if r.LiabilityBalance != r.TitlesValueRemaining {
 		r.Discrepancies = append(r.Discrepancies, "solde des titres au grand livre ≠ registre des titres")
 	}
-	if r.LedgerSalesTotal != r.LiabilityBalance+r.OperatorRevenue+r.MetalaCommission {
+	if op == "" && r.WalletLedger != r.WalletCards+r.OfflinePending {
+		r.Discrepancies = append(r.Discrepancies, "porte-monnaie au grand livre ≠ soldes des cartes + débits hors ligne en attente")
+	}
+	if r.LedgerSalesTotal != r.LiabilityBalance+r.WalletLedger+r.OperatorRevenue+r.MetalaCommission {
 		r.Discrepancies = append(r.Discrepancies, "grand livre déséquilibré")
 	}
 	r.Balanced = len(r.Discrepancies) == 0

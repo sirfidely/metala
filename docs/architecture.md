@@ -101,3 +101,35 @@ Le passage en production se fait module par module, sans changer l'API :
 2. Le verrou global est remplacé par des transactions : `SELECT … FOR UPDATE` sur le titre et le départ, et des contraintes `UNIQUE` sur `tap_id` et `event_id`.
 3. Le dernier point GPS de chaque véhicule passe dans Redis ; l'historique va en base avec rétention.
 4. La diffusion temps réel passe en WebSocket derrière la passerelle API.
+
+## Porte-monnaie et paiement hors ligne
+
+Le Metala Pass embarque un **porte-monnaie** : un solde en FCFA stocké sur la puce (fichier valeur
+sécurisé DESFire), rechargé à l'avance depuis l'App en Mobile Money.
+
+| Situation | Qui décide | Ce qui est débité |
+|---|---|---|
+| En ligne, titre valide (forfait, carnet) | serveur | le titre |
+| En ligne, pas de titre | serveur | le porte-monnaie (tarif du ticket unitaire de l'opérateur) |
+| Hors ligne | valideur (SAM + liste noire en cache) | le porte-monnaie, **sur la puce** |
+
+Déroulé hors ligne :
+
+1. En ligne, le valideur télécharge sa configuration (`GET /api/scan/config`), qui contient le tarif et la liste noire des cartes bloquées.
+2. Réseau coupé : le valideur authentifie la carte localement (SAM), vérifie qu'elle n'est pas sur la liste noire et applique un anti-passback local.
+3. La puce débite son solde, incrémente son compteur et **signe** la transaction (HMAC de la clé diversifiée ; MAC de transaction DESFire en production).
+4. Le valideur stocke la transaction. Au retour du réseau, il l'envoie (`POST /api/scan/offline-sync`).
+5. Le serveur vérifie la signature, déduplique par (carte, compteur), crée la validation et passe l'écriture « porte-monnaie → recette transporteur ».
+
+Garanties :
+
+- **Pas de double dépense.** Le solde vit sur la puce : on ne peut dépenser que ce qui a été prépayé, même sur plusieurs bus hors ligne.
+- **Pas de falsification.** Une transaction modifiée (montant, compteur, terminal) est rejetée à la synchronisation.
+- **Pas de double comptage.** Une transaction remontée deux fois, par le même valideur ou par un autre, est ignorée.
+- **Carte perdue.** Le voyageur la bloque depuis l'App ; la liste noire est diffusée aux valideurs à leur prochaine connexion.
+- **Rapprochement.** Le solde du compte porte-monnaie doit égaler la somme des soldes des cartes plus les transactions hors ligne pas encore remontées.
+
+Plafond de démonstration : 20 000 FCFA. Le statut réglementaire du porte-monnaie (monnaie électronique,
+Instruction BCEAO n° 001-01-2024) doit être validé avec le PSP et un avis juridique avant tout encaissement réel.
+Dans le prototype, la puce est simulée côté serveur (`/api/dev/cards/{uid}/offline-debit`) ; le serveur ne
+connaît son journal que pour cette raison.

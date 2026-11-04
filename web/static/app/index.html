@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0b5d4b">
-<title>Metala App</title>
+<meta name="theme-color" content="#0a2530">
+<title>Metala</title>
 <link rel="stylesheet" href="/vendor/maplibre-gl-4.7.1/maplibre-gl.css">
 <link rel="stylesheet" href="/shared/metala.css">
 <link rel="stylesheet" href="app.css">
@@ -12,100 +12,53 @@
 </head>
 <body>
 <div class="phone">
-  <div class="demo-banner"><strong>Démo</strong> — données fictives et GPS simulé</div>
+  <div class="demo-strip" id="banner">Démo · données fictives</div>
 
-  <!-- Connexion -->
   <section id="login" class="screen login">
-    <div class="login-hero">
+    <div class="login-top">
+      <div class="mark">M</div>
       <div class="logo">METALA</div>
       <p>Votre ville. Votre mobilité.</p>
     </div>
     <div class="login-form">
       <div id="step-phone">
-        <div class="field">
-          <label for="phone">Numéro de téléphone</label>
-          <div class="phone-input"><span>+225</span><input id="phone" inputmode="tel" placeholder="07 00 00 00 01" autocomplete="tel"></div>
-        </div>
-        <button class="btn block" id="btn-otp">Recevoir un code</button>
-        <p class="small muted" style="margin-top:12px">Compte de démonstration : <a href="#" id="fill-awa">07 00 00 00 01 (Awa, fictive)</a></p>
+        <label class="lbl" for="phone">Numéro de téléphone</label>
+        <div class="phone-input"><span>+225</span><input id="phone" inputmode="tel" placeholder="07 00 00 00 01" autocomplete="tel"></div>
+        <button class="pill-btn primary" id="btn-otp">Continuer</button>
+        <button class="pill-btn ghost" id="btn-awa">Compte démo · Awa</button>
       </div>
       <div id="step-code" class="hidden">
-        <div class="field">
-          <label for="code">Code reçu par SMS</label>
-          <input id="code" inputmode="numeric" maxlength="6" placeholder="••••••" autocomplete="one-time-code">
-        </div>
+        <label class="lbl" for="code">Code reçu par SMS</label>
+        <input id="code" class="code-input" inputmode="numeric" maxlength="6" placeholder="••••••" autocomplete="one-time-code">
         <div class="dev-otp hidden" id="dev-otp"></div>
-        <div class="field">
-          <label for="name">Votre prénom (facultatif)</label>
-          <input id="name" placeholder="Prénom">
-        </div>
-        <button class="btn block" id="btn-verify">Se connecter</button>
-        <button class="btn ghost block" id="btn-back">Changer de numéro</button>
+        <button class="pill-btn primary" id="btn-verify">Se connecter</button>
+        <button class="pill-btn ghost" id="btn-back">Modifier le numéro</button>
       </div>
     </div>
   </section>
 
-  <!-- Application -->
   <section id="main" class="screen hidden">
-    <div id="tab-map" class="tab">
+    <header class="appbar" id="appbar">
+      <button class="icon-btn" id="nav-back" aria-label="Retour"></button>
+      <div class="appbar-title" id="title"></div>
+      <span class="icon-btn" aria-hidden="true"></span>
+    </header>
+    <div id="view" class="view"></div>
+    <div id="mapview" class="mapview hidden">
       <div id="map"></div>
-      <div class="search card">
-        <div class="search-row">
-          <span class="pin from"></span>
-          <select id="from"></select>
-        </div>
-        <div class="search-row">
-          <span class="pin to"></span>
-          <select id="to"></select>
-        </div>
-      </div>
-      <div class="legend">
-        <span><i class="lg fresh"></i>frais</span><span><i class="lg delayed"></i>retardé</span><span><i class="lg unknown"></i>inconnu</span>
-      </div>
-      <div id="sheet" class="sheet">
-        <div class="grab"></div>
-        <div id="sheet-body"></div>
-      </div>
+      <div class="map-legend"><span><i class="lg fresh"></i>En direct</span><span><i class="lg delayed"></i>Retardé</span><span><i class="lg unknown"></i>Inconnu</span></div>
+      <div id="sheet" class="sheet hidden"></div>
     </div>
-
-    <div id="tab-titles" class="tab scroll hidden">
-      <h2 class="tab-title">Acheter un titre</h2>
-      <p class="muted small" style="margin:0 16px 12px">Paiement via GeniusPay vers un PSP habilité — <strong>simulateur</strong> dans ce prototype.</p>
-      <div id="products"></div>
-    </div>
-
-    <div id="tab-pass" class="tab scroll hidden">
-      <h2 class="tab-title">Mon Metala Pass</h2>
-      <div id="pass"></div>
-    </div>
-
-    <div id="tab-trips" class="tab scroll hidden">
-      <h2 class="tab-title">Mes trajets</h2>
-      <div id="reservations"></div>
-      <div id="history"></div>
-    </div>
-
     <nav class="tabbar">
-      <button data-tab="map" class="active"><span>🗺️</span>Carte</button>
-      <button data-tab="titles"><span>🎟️</span>Titres</button>
-      <button data-tab="pass"><span>💳</span>Mon Pass</button>
-      <button data-tab="trips"><span>🕘</span>Trajets</button>
+      <button data-tab="home" aria-label="Accueil"></button>
+      <button data-tab="lines" aria-label="Lignes et arrêts"></button>
+      <button data-tab="pass" class="fab" aria-label="Mon Pass"></button>
+      <button data-tab="map" aria-label="Carte"></button>
+      <button data-tab="profile" aria-label="Profil"></button>
     </nav>
   </section>
 
-  <!-- Paiement simulé -->
-  <div id="pay-modal" class="modal hidden">
-    <div class="modal-card">
-      <div class="psp-head"><span>GeniusPay</span><span class="badge sim">Simulateur PSP</span></div>
-      <div id="pay-body"></div>
-      <label class="check"><input type="checkbox" id="pay-dup"> Envoyer le webhook PSP en double (test T-009 : un seul titre émis)</label>
-      <div class="modal-actions">
-        <button class="btn block" id="pay-ok">Confirmer le paiement</button>
-        <button class="btn secondary block" id="pay-fail">Simuler un échec</button>
-        <button class="btn ghost block" id="pay-cancel">Annuler</button>
-      </div>
-    </div>
-  </div>
+  <div id="modal" class="modal hidden"><div class="modal-card" id="modal-card"></div></div>
 </div>
 <script type="module" src="app.js"></script>
 </body>

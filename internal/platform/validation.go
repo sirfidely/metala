@@ -196,6 +196,7 @@ func (p *Platform) Validate(pr Principal, req TapRequest) (*Validation, error) {
 			LedgerLine{Account: AccOperatorRevenue, Credit: value - commission},
 			LedgerLine{Account: AccMetalaCommission, Credit: commission})
 		rem := t.TripsRemaining
+		v.Source = "title"
 		v.Status, v.TitleID, v.TitleName, v.TripsRemaining, v.Debited = ValAccepted, t.ID, t.Name, &rem, value
 		switch rem {
 		case 0:
@@ -205,6 +206,17 @@ func (p *Platform) Validate(pr Principal, req TapRequest) (*Validation, error) {
 		default:
 			v.Message = fmt.Sprintf("Validé — %d trajets restants", rem)
 		}
+	case card.Balance > 0 && card.Balance >= p.fareLocked(veh.OperatorID):
+		// Pas de titre : le porte-monnaie de la carte paie le trajet.
+		fare := p.fareLocked(veh.OperatorID)
+		card.Balance -= fare
+		card.Counter++
+		p.postWalletUsageLocked(veh.OperatorID, v.ID, fare)
+		bal := card.Balance
+		v.Status, v.Source, v.Debited, v.WalletBalance, v.TitleName = ValAccepted, "wallet", fare, &bal, "Porte-monnaie"
+		v.Message = fmt.Sprintf("Validé — solde %d FCFA", bal)
+	case card.Balance > 0:
+		return record(p.reject(v, "insufficient_balance", fmt.Sprintf("Refusé — solde insuffisant (%d FCFA)", card.Balance)))
 	case expired:
 		return record(p.reject(v, "title_expired", "Refusé — titre expiré"))
 	default:

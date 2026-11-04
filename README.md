@@ -13,18 +13,37 @@ du pilote proposé : **2 opérateurs, 10 véhicules, 2 corridors**.
 > paiement réel n'est effectué. Ce code ne doit pas servir à une exploitation commerciale : l'exploitation
 > payante reste conditionnée aux contrôles techniques, sécuritaires, contractuels et réglementaires (jalon M3).
 
-| Metala App | Metala Scan | Metala Fleet |
-|---|---|---|
-| ![App](docs/screenshots/app-map.png) | ![Scan](docs/screenshots/scan-ok.png) | ![Fleet](docs/screenshots/fleet-dash.png) |
+![Démo guidée : App, Scan et Fleet côte à côte](docs/screenshots/demo-guidee.png)
 
-*Captures du prototype ; les tuiles OpenStreetMap n'étaient pas chargées dans l'environnement de capture.*
+| Accueil | Mon Pass | Valideur hors ligne |
+|---|---|---|
+| ![Accueil](docs/screenshots/app-accueil.png) | ![Pass](docs/screenshots/app-pass.png) | ![Scan hors ligne](docs/screenshots/scan-hors-ligne.png) |
+
+## Pour la présentation : la démo guidée
+
+Ouvrez **<http://localhost:8080/demo/>**. La page affiche **l'App, le valideur Scan et le portail Fleet côte à côte**, avec un narrateur
+qui raconte le trajet d'Awa en 10 étapes, en 3 à 4 minutes :
+
+1. Awa ouvre Metala : son Pass, son solde, les prochains bus.
+2. Elle cherche son trajet vers le Plateau.
+3. Elle voit son bus arriver sur la carte, en direct.
+4. Elle monte et présente sa carte : « Validé — 18 trajets restants ».
+5. Le transporteur voit la montée et la recette instantanément.
+6. Une carte copiée est refusée.
+7. **Plus de réseau : le porte-monnaie de la carte paie hors ligne.**
+8. Le réseau revient : le passage est synchronisé et payé au transporteur.
+9. Awa recharge son porte-monnaie en Mobile Money.
+10. Chaque franc est rapproché : écart de 0 FCFA.
+
+Commandes : `→` étape suivante, `←` étape précédente, `R` rejouer l'action. **↺ Recommencer** remet les données à zéro.
+Sur un écran étroit, des onglets permettent de passer d'un écran à l'autre.
 
 ## Les quatre briques
 
 | Brique | Pour qui | Dans le prototype |
 |---|---|---|
 | **Metala App** | Voyageurs | `/app/` : connexion OTP, carte en direct (MapLibre + OpenStreetMap), recherche de trajet, arrivées estimées avec fraîcheur GPS, alerte à 3 min, achat de titres, réservation, Metala Pass, historique |
-| **Metala Pass** | Voyageurs, y compris sans smartphone | Carte NFC passive simulée : preuve cryptographique dynamique (challenge/réponse), jamais l'UID seul |
+| **Metala Pass** | Voyageurs, y compris sans smartphone | Carte NFC simulée : preuve cryptographique dynamique (jamais l'UID seul) et **porte-monnaie** rechargeable, utilisable hors ligne |
 | **Metala Scan** | Conducteurs, contrôleurs | `/scan/` : valideur embarqué, décision prise par le serveur, anti double débit, refus explicite hors réseau |
 | **Metala Fleet** | Opérateurs de transport | `/fleet/` : tableau de bord, flotte et GPS, gel de terminal, validations, recettes, rapprochement PSP ↔ titres ↔ grand livre, révocation de cartes |
 
@@ -61,6 +80,17 @@ go test -race ./...
 Comptes de démonstration : `fleet@lagune.demo`, `fleet@ebene.demo`, `admin@metala.demo` (mot de passe `metala-demo`).
 Voyageurs fictifs : Awa `07 00 00 00 01` (carnet M2), Koffi `07 00 00 00 02` (forfait N1), Yao `07 00 00 00 03` (sans titre).
 
+## Porte-monnaie et paiement hors ligne
+
+Le voyageur **recharge à l'avance** le porte-monnaie de son Metala Pass (1 000, 2 000 ou 5 000 FCFA ; plafond de 20 000 FCFA).
+
+- **En ligne** : le serveur décide. Il utilise d'abord un forfait ou un carnet ; à défaut, il débite le porte-monnaie au tarif du ticket.
+- **Hors ligne** : le valideur décide seul. Il authentifie la carte (SAM), consulte la liste noire en cache, puis **débite la puce**. La puce signe la transaction, que le valideur met en file d'attente.
+- **Au retour du réseau** : la file est synchronisée. Le serveur vérifie chaque signature, ignore les doublons et paie le transporteur.
+
+On ne peut dépenser que le solde prépayé présent sur la carte : **aucune double dépense**. Une carte perdue se bloque depuis l'App.
+Détails dans [`docs/architecture.md`](docs/architecture.md#porte-monnaie-et-paiement-hors-ligne).
+
 ## Ce que le prototype respecte du cahier des charges
 
 | Exigence | Mise en œuvre | Test |
@@ -74,7 +104,7 @@ Voyageurs fictifs : Awa `07 00 00 00 01` (carnet M2), Koffi `07 00 00 00 02` (fo
 | Isolation des opérateurs | RBAC + filtrage par `operator_id` à chaque requête Fleet | T-014 |
 | Forfait expiré rejeté | contrôle de validité au moment de la montée | T-015 |
 | Grand livre = rapports | écritures en partie double, rapprochement à 5 contrôles | T-018 |
-| Terminal hors réseau | refus explicite, aucune validation financière hors ligne | e2e |
+| Terminal hors réseau | porte-monnaie débité sur la puce, transaction signée puis synchronisée ; refus explicite pour tout le reste (carte clonée, carte bloquée, solde insuffisant) | `TestOfflineWalletDebitAndSync` |
 | Incident | gel de terminal, révocation de carte | test dédié |
 | Minimisation des données (loi n° 2013-450) | l'opérateur voit un UID masqué, jamais l'identité du voyageur ; immatriculations non publiques | T-014, API |
 
@@ -109,7 +139,7 @@ et [`docs/api.md`](docs/api.md) pour la référence de l'API.
 | État en mémoire, verrou unique | PostgreSQL + PostGIS + Redis, transactions ACID ([`docs/schema.sql`](docs/schema.sql)) |
 | Interfaces web | Metala App en Flutter (Android et iOS), Metala Scan en Flutter Android NFC |
 | Server-Sent Events | WebSocket via la passerelle API |
-| Carte virtuelle (HMAC) | MIFARE DESFire EV3 ou équivalent, authentification AES, SAM ; choix à confirmer en POC (M1). Le standard Calypso du PMDIA reste à étudier. |
+| Carte et porte-monnaie virtuels (HMAC) | MIFARE DESFire EV3 ou équivalent, authentification AES, SAM ; choix à confirmer en POC (M1). Le standard Calypso du PMDIA reste à étudier. |
 | PSP simulé | GeniusPay vers des PSP habilités ; avis juridique, Instruction BCEAO n° 001-01-2024 |
 | OTP affiché à l'écran | Passerelle SMS ; limitation de débit |
 | Secrets de démonstration | Gestion des secrets, rotation, environnements séparés |
@@ -123,7 +153,15 @@ et [`docs/api.md`](docs/api.md) pour la référence de l'API.
 | `METALA_CARD_MASTER_KEY` | clé maître de diversification des cartes (≥ 32 caractères) |
 | `METALA_PSP_WEBHOOK_SECRET` | secret de signature des webhooks PSP (≥ 32 caractères) |
 
-Options : `-sim=false` désactive le simulateur GPS ; `-riders=false` désactive les montées simulées.
+Options : `-sim=false` désactive le simulateur GPS, `-riders=false` désactive les montées simulées, et
+`-web-dir web/static` sert les interfaces depuis le disque (pratique pour modifier le HTML/CSS/JS sans recompiler).
+
+## Fond de carte
+
+La carte utilise **OpenFreeMap** (tuiles vectorielles, gratuites, sans clé, données OpenStreetMap), avec les styles *positron*
+(Fleet) et *dark* (App). Si le service ne répond pas, la carte bascule automatiquement sur les tuiles OpenStreetMap puis CARTO.
+Lignes, arrêts et bus restent affichés même sans fond. Le serveur envoie l'en-tête `Referrer-Policy: strict-origin-when-cross-origin`,
+exigé par OpenStreetMap.
 
 ## Feuille de route après le prototype
 

@@ -107,35 +107,59 @@ type Platform struct {
 	departures    map[string]*Departure
 	reservations  map[string]*Reservation
 	ledger        []*LedgerEntry
+	epoch         int
 	order         []string // ordre d'insertion des IDs de titres (historique)
 }
 
 func New(cfg Config) *Platform {
-	return &Platform{
-		cfg:             cfg,
-		now:             time.Now,
-		operators:       map[string]*Operator{},
-		stops:           map[string]*Stop{},
-		lines:           map[string]*Line{},
-		vehicles:        map[string]*Vehicle{},
-		devices:         map[string]*Device{},
-		products:        map[string]*Product{},
-		telemetry:       map[string]*Telemetry{},
-		travelers:       map[string]*Traveler{},
-		travelerByPhone: map[string]string{},
-		otps:            map[string]*otpState{},
-		sessions:        map[string]*session{},
-		staff:           map[string]*staffAccount{},
-		cards:           map[string]*Card{},
-		titles:          map[string]*Title{},
-		payments:        map[string]*Payment{},
-		paymentByPSP:    map[string]string{},
-		webhookEvents:   map[string]bool{},
-		tapResults:      map[string]*Validation{},
-		challenges:      map[string]*challenge{},
-		departures:      map[string]*Departure{},
-		reservations:    map[string]*Reservation{},
-	}
+	p := &Platform{cfg: cfg, now: time.Now}
+	p.resetStateLocked()
+	return p
+}
+
+// resetStateLocked remet l'état à vide (appelant : verrou tenu ou objet neuf).
+func (p *Platform) resetStateLocked() {
+	p.operators = map[string]*Operator{}
+	p.stops = map[string]*Stop{}
+	p.lines = map[string]*Line{}
+	p.vehicles = map[string]*Vehicle{}
+	p.devices = map[string]*Device{}
+	p.products = map[string]*Product{}
+	p.telemetry = map[string]*Telemetry{}
+	p.travelers = map[string]*Traveler{}
+	p.travelerByPhone = map[string]string{}
+	p.otps = map[string]*otpState{}
+	p.sessions = map[string]*session{}
+	p.staff = map[string]*staffAccount{}
+	p.cards = map[string]*Card{}
+	p.titles = map[string]*Title{}
+	p.payments = map[string]*Payment{}
+	p.paymentByPSP = map[string]string{}
+	p.webhookEvents = map[string]bool{}
+	p.validations = nil
+	p.tapResults = map[string]*Validation{}
+	p.challenges = map[string]*challenge{}
+	p.departures = map[string]*Departure{}
+	p.reservations = map[string]*Reservation{}
+	p.ledger = nil
+}
+
+// Reset remet la démonstration dans son état initial (mode démo uniquement).
+// Les sessions ouvertes sont invalidées ; Epoch permet aux simulateurs de
+// reconstruire leurs voyageurs fictifs.
+func (p *Platform) Reset() error {
+	p.mu.Lock()
+	p.resetStateLocked()
+	p.epoch++
+	p.mu.Unlock()
+	return p.Seed()
+}
+
+// Epoch change à chaque réinitialisation.
+func (p *Platform) Epoch() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.epoch
 }
 
 func (p *Platform) Config() Config { return p.cfg }

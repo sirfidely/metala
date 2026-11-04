@@ -75,6 +75,11 @@ func (p *Platform) Seed() error {
 		{ID: "prd_ebe_c10", OperatorID: "op_ebene", Name: "Carnet 10 trajets", Kind: ProductCarnet, Trips: 10, Price: 3600, ValidityDays: 30},
 		{ID: "prd_ebe_month", OperatorID: "op_ebene", Name: "Forfait mensuel Ébène", Kind: ProductMonthly, Price: 15000, ValidityDays: 30},
 	}
+	prods = append(prods,
+		&Product{ID: "prd_wallet_1000", Name: "Recharge 1 000 FCFA", Kind: ProductWallet, Price: 1000},
+		&Product{ID: "prd_wallet_2000", Name: "Recharge 2 000 FCFA", Kind: ProductWallet, Price: 2000},
+		&Product{ID: "prd_wallet_5000", Name: "Recharge 5 000 FCFA", Kind: ProductWallet, Price: 5000},
+	)
 	for _, pr := range prods {
 		p.products[pr.ID] = pr
 	}
@@ -119,6 +124,10 @@ func (p *Platform) Seed() error {
 		return err
 	}
 	if err := p.demoPurchase(koffi, "prd_ebe_month"); err != nil {
+		return err
+	}
+	// Awa a aussi 2 000 FCFA sur le porte-monnaie de sa carte.
+	if err := p.demoPurchase(awa, "prd_wallet_2000"); err != nil {
 		return err
 	}
 	// Awa a déjà fait un trajet ce matin : il lui en reste 19.

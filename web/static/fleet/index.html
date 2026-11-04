@@ -38,6 +38,22 @@
   .recon table td:last-child { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
   .check-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid #f0f2f1; font-size: 14px; }
   .scroll-x { overflow-x: auto; }
+  .intro { background: #fff8e6; border: 1px solid #fde8b0; color: #6b4e0b; border-radius: 12px; padding: 10px 14px 10px 38px; font-size: 13.5px; line-height: 1.5; margin-bottom: 16px; position: relative; }
+  .intro::before { content: "💡"; position: absolute; left: 13px; top: 10px; }
+  .intro b { color: #4a3505; }
+  body.no-explain .intro, body.no-explain .kpi .sub { display: none; }
+  .feed { display: grid; gap: 0; }
+  .feed-item { display: flex; align-items: center; gap: 10px; padding: 9px 4px; border-bottom: 1px solid #f0f2f1; font-size: 13.5px; }
+  .feed-item .when { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .feed-item.new { animation: newrow 2.4s ease-out; }
+  @keyframes newrow { 0% { background: #d1fae5; } 100% { background: transparent; } }
+  .feed-ico { width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 900; flex: none; }
+  .feed-ico.accepted { background: #dcfce7; color: #166534; } .feed-ico.already_validated { background: #fef3c7; color: #92400e; } .feed-ico.rejected { background: #fee2e2; color: #991b1b; }
+  .card.hl { animation: hl 2s ease-out; }
+  @keyframes hl { 0% { box-shadow: 0 0 0 4px #10b981; } 100% { box-shadow: var(--shadow); } }
+  .tg-explain { border: 1px solid #d1d5db; background: #fff; border-radius: 9px; padding: 6px 10px; font-size: 13px; }
+  body.embed .demo-banner { display: none; }
+  body.embed main { padding: 14px; }
   @media (max-width: 860px) {
     .layout { grid-template-columns: 1fr; }
     aside { flex-direction: row; flex-wrap: wrap; align-items: center; padding: 10px; }
@@ -69,7 +85,7 @@
     <nav id="nav">
       <button data-v="dash" class="active">Tableau de bord</button>
       <button data-v="vehicles">Flotte & terminaux</button>
-      <button data-v="validations">Validations</button>
+      <button data-v="validations">Journal des montées</button>
       <button data-v="recon">Recettes & rapprochement</button>
       <button data-v="cards" id="nav-cards" class="hidden">Cartes Metala Pass</button>
     </nav>
@@ -80,10 +96,12 @@
       <h2 id="view-title">Tableau de bord</h2>
       <div class="row">
         <select id="op-filter" class="hidden" style="padding:8px 10px;border-radius:9px;border:1px solid #d1d5db"></select>
+        <button class="tg-explain" id="tg-explain" title="Afficher ou masquer les explications">💡 Explications</button>
         <span class="badge sim">Données simulées</span>
         <span class="small muted" id="updated"></span>
       </div>
     </div>
+    <div class="intro" id="intro"></div>
     <div id="v-dash"></div>
     <div id="v-map-wrap" class="card" style="padding:8px;margin-top:16px"><div id="fleet-map"></div></div>
     <div id="v-vehicles" class="hidden"></div>

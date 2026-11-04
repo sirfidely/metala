@@ -115,6 +115,14 @@ type Card struct {
 	TravelerID string     `json:"traveler_id"`
 	Status     CardStatus `json:"status"`
 	IssuedAt   time.Time  `json:"issued_at"`
+	// Porte-monnaie stocké sur la puce (fichier valeur DESFire). Il peut être
+	// débité hors ligne par un valideur ; la puce incrémente son compteur et
+	// signe chaque débit.
+	Balance int64 `json:"balance"`
+	Counter int   `json:"counter"`
+	// Journal de la puce : débits hors ligne pas encore remontés au serveur
+	// (connu ici uniquement parce que la puce est simulée).
+	pendingOffline map[int]int64
 }
 
 type ProductKind string
@@ -123,6 +131,7 @@ const (
 	ProductSingle  ProductKind = "single"  // ticket unitaire
 	ProductCarnet  ProductKind = "carnet"  // N trajets
 	ProductMonthly ProductKind = "monthly" // forfait illimité
+	ProductWallet  ProductKind = "wallet"  // recharge du porte-monnaie Metala
 )
 
 type Product struct {
@@ -197,7 +206,10 @@ type Validation struct {
 	Message        string           `json:"message"`
 	TripsRemaining *int             `json:"trips_remaining,omitempty"`
 	ValidUntil     *time.Time       `json:"valid_until,omitempty"`
-	Debited        int64            `json:"debited"` // valeur reconnue (FCFA)
+	Debited        int64            `json:"debited"`          // valeur reconnue (FCFA)
+	Source         string           `json:"source,omitempty"` // title | wallet
+	Offline        bool             `json:"offline,omitempty"`
+	WalletBalance  *int64           `json:"wallet_balance,omitempty"`
 }
 
 type Departure struct {
@@ -225,6 +237,7 @@ const (
 	AccTitleLiability   = "titles_liability"  // titres vendus non consommés
 	AccOperatorRevenue  = "operator_revenue"  // recette du transporteur
 	AccMetalaCommission = "metala_commission" // commission Metala
+	AccWalletLiability  = "wallet_liability"  // soldes des porte-monnaie voyageurs
 )
 
 type LedgerLine struct {

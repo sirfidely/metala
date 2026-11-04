@@ -264,7 +264,8 @@ func TestT014_OperatorIsolation(t *testing.T) {
 		t.Fatal("un opérateur ne doit pas geler le terminal d'un autre")
 	}
 	// Un titre Lagune n'ouvre pas les bus Ébène.
-	if v := tap(t, p, device(p, "dev_201"), DemoAwa.CardUID, "iso"); v.Status != ValRejected {
+	// (le porte-monnaie, lui, est valable sur tous les réseaux)
+	if v := tap(t, p, device(p, "dev_201"), DemoAwa.CardUID, "iso"); v.Source == "title" {
 		t.Fatalf("titre Lagune accepté chez Ébène : %+v", v)
 	}
 	// Un voyageur ou un terminal n'accède pas à Fleet.
@@ -331,7 +332,7 @@ func TestT018_LedgerMatchesReports(t *testing.T) {
 	assertBalanced(t, p)
 	_, lagune, _ := p.StaffLogin("fleet@lagune.demo", DemoStaffPassword)
 	r, _ := p.Reconcile(lagune, "")
-	if !r.Balanced || r.LedgerSalesTotal != r.OperatorRevenue+r.MetalaCommission+r.LiabilityBalance {
+	if !r.Balanced || r.LedgerSalesTotal != r.OperatorRevenue+r.MetalaCommission+r.LiabilityBalance+r.WalletLedger {
 		t.Fatalf("rapprochement Lagune : %+v", r)
 	}
 }
@@ -371,4 +372,100 @@ func countUsage(p *Platform) int {
 		}
 	}
 	return n
+}
+
+func TestResetRestoresDemo(t *testing.T) {
+	p, _ := setup(t)
+	tap(t, p, device(p, "dev_101"), DemoAwa.CardUID, "before")
+	tok, _, _ := p.StaffLogin("fleet@lagune.demo", DemoStaffPassword)
+	e := p.Epoch()
+	if err := p.Reset(); err != nil {
+		t.Fatal(err)
+	}
+	if p.Epoch() != e+1 {
+		t.Fatal("epoch non incrémenté")
+	}
+	if _, err := p.Authenticate(tok); err == nil {
+		t.Fatal("les sessions doivent être invalidées")
+	}
+	if v := tap(t, p, device(p, "dev_101"), DemoAwa.CardUID, "after"); v.Message != "Validé — 18 trajets restants" {
+		t.Fatalf("après réinitialisation : %q", v.Message)
+	}
+	assertBalanced(t, p)
+}
+
+// Porte-monnaie : paiement en ligne quand aucun titre ne couvre le trajet.
+func TestWalletOnlinePayment(t *testing.T) {
+	p, _ := setup(t)
+	yao := travelerByPhone(p, DemoYao.Phone)
+	if v := tap(t, p, device(p, "dev_101"), DemoYao.CardUID, "w0"); v.Reason != "no_title" {
+		t.Fatalf("sans titre ni solde : %+v", v)
+	}
+	pay, _ := p.CreatePurchase(yao, "prd_wallet_1000")
+	if _, err := p.SimulatePSP(pay.ID, "succeeded", true); err != nil {
+		t.Fatal(err)
+	}
+	v := tap(t, p, device(p, "dev_101"), DemoYao.CardUID, "w1")
+	if v.Status != ValAccepted || v.Source != "wallet" || v.Debited != 300 || *v.WalletBalance != 700 {
+		t.Fatalf("paiement porte-monnaie : %+v", v)
+	}
+	assertBalanced(t, p)
+	// Plafond
+	big, _ := p.CreatePurchase(yao, "prd_wallet_5000")
+	for i := 0; i < 3; i++ {
+		b2, _ := p.CreatePurchase(yao, "prd_wallet_5000")
+		_, _ = p.SimulatePSP(b2.ID, "succeeded", false)
+	}
+	_ = big
+	if _, err := p.CreatePurchase(yao, "prd_wallet_5000"); !errors.Is(err, ErrConflict) {
+		t.Fatalf("plafond non appliqué : %v", err)
+	}
+}
+
+// Hors ligne : la puce est débitée sans serveur, puis la remontée est
+// vérifiée, idempotente et comptabilisée.
+func TestOfflineWalletDebitAndSync(t *testing.T) {
+	p, _ := setup(t)
+	dev := device(p, "dev_103")
+	tx, err := p.OfflineTap("dev_103", DemoAwa.CardUID)
+	if err != nil || tx.Balance != 1700 {
+		t.Fatalf("débit hors ligne : %+v %v", tx, err)
+	}
+	// Avant synchronisation, le rapprochement reste juste grâce au journal en attente.
+	assertBalanced(t, p)
+	p.mu.Lock()
+	r := p.reconcileLocked("")
+	p.mu.Unlock()
+	if r.OfflinePendingCount != 1 || r.OfflinePending != 300 {
+		t.Fatalf("en attente : %+v", r)
+	}
+	forged := *tx
+	forged.Amount = 1
+	res, _ := p.OfflineSync(dev, []OfflineTx{forged})
+	if res.Rejected != 1 || res.Synced != 0 {
+		t.Fatalf("transaction falsifiée acceptée : %+v", res)
+	}
+	res, _ = p.OfflineSync(dev, []OfflineTx{*tx, *tx})
+	if res.Synced != 1 || res.Duplicates != 1 {
+		t.Fatalf("synchronisation : %+v", res)
+	}
+	res, _ = p.OfflineSync(dev, []OfflineTx{*tx})
+	if res.Duplicates != 1 || res.Synced != 0 {
+		t.Fatalf("re-synchronisation : %+v", res)
+	}
+	assertBalanced(t, p)
+	// Impossible de dépenser plus que le solde prépayé.
+	for i := 0; i < 5; i++ {
+		_, _ = p.OfflineTap("dev_103", DemoAwa.CardUID)
+	}
+	if _, err := p.OfflineTap("dev_103", DemoAwa.CardUID); !errors.Is(err, ErrConflict) {
+		t.Fatalf("solde négatif autorisé : %v", err)
+	}
+	// La liste noire est fournie aux valideurs pour décider hors ligne.
+	_, admin, _ := p.StaffLogin("admin@metala.demo", DemoStaffPassword)
+	_ = p.RevokeCard(admin, DemoKoffi.CardUID)
+	cfg, _ := p.ScanConfig(dev)
+	if cfg.Fare != 300 || len(cfg.Blacklist) != 1 || cfg.Blacklist[0] != DemoKoffi.CardUID {
+		t.Fatalf("configuration hors ligne : %+v", cfg)
+	}
 }

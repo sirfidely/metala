@@ -108,11 +108,12 @@ func (s *vehicleSim) reporting(now, start time.Time) bool {
 // riders simule des voyageurs fictifs qui montent à bord avec un Pass,
 // en rejouant le protocole complet (challenge, preuve, validation serveur).
 type riders struct {
-	p    *platform.Platform
-	rng  *rand.Rand
-	pool []rider
-	next time.Time
-	devs []platform.DevDevice
+	p     *platform.Platform
+	rng   *rand.Rand
+	pool  []rider
+	next  time.Time
+	devs  []platform.DevDevice
+	epoch int
 }
 
 type rider struct {
@@ -123,7 +124,7 @@ type rider struct {
 }
 
 func newRiders(p *platform.Platform, rng *rand.Rand) *riders {
-	r := &riders{p: p, rng: rng}
+	r := &riders{p: p, rng: rng, epoch: p.Epoch()}
 	r.devs, _ = p.DevInventory()
 	for i := 0; i < 16; i++ {
 		phone := fmt.Sprintf("+22501%08d", 10000+i)
@@ -149,6 +150,10 @@ func newRiders(p *platform.Platform, rng *rand.Rand) *riders {
 }
 
 func (r *riders) maybeTap(now time.Time) {
+	if e := r.p.Epoch(); e != r.epoch { // démo réinitialisée : nouveaux voyageurs
+		fresh := newRiders(r.p, r.rng)
+		r.pool, r.devs, r.epoch = fresh.pool, fresh.devs, e
+	}
 	if now.Before(r.next) || len(r.pool) == 0 {
 		return
 	}

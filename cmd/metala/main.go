@@ -21,6 +21,7 @@ func main() {
 	addr := flag.String("addr", envOr("METALA_ADDR", ":8080"), "adresse d'écoute")
 	simulate := flag.Bool("sim", true, "activer le simulateur GPS de démonstration")
 	riders := flag.Bool("riders", true, "simuler des montées de voyageurs fictifs")
+	webDir := flag.String("web-dir", "", "servir les interfaces depuis ce dossier (développement) au lieu des fichiers intégrés")
 	flag.Parse()
 
 	cfg := platform.DefaultConfig()
@@ -40,7 +41,11 @@ func main() {
 		go sim.Run(ctx, p, *riders)
 	}
 
-	srv := &http.Server{Addr: *addr, Handler: api.New(p, web.Static()).Handler(), ReadHeaderTimeout: 5 * time.Second}
+	static := web.Static()
+	if *webDir != "" {
+		static = os.DirFS(*webDir)
+	}
+	srv := &http.Server{Addr: *addr, Handler: api.New(p, static).Handler(), ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		<-ctx.Done()
 		sh, cancel := context.WithTimeout(context.Background(), 5*time.Second)

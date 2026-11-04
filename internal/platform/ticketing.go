@@ -41,6 +41,15 @@ func (p *Platform) CreatePurchase(pr Principal, productID string) (*Payment, err
 	if prod == nil {
 		return nil, ErrNotFound
 	}
+	if prod.Kind == ProductWallet {
+		c := p.travelerCardLocked(pr.TravelerID)
+		if c == nil {
+			return nil, fmt.Errorf("%w : aucune carte active", ErrConflict)
+		}
+		if c.Balance+prod.Price > WalletCap {
+			return nil, fmt.Errorf("%w : plafond du porte-monnaie (%d FCFA) dépassé", ErrConflict, WalletCap)
+		}
+	}
 	pay := &Payment{
 		ID: newID("pay"), TravelerID: pr.TravelerID, ProductID: prod.ID, OperatorID: prod.OperatorID,
 		Amount: prod.Price, Status: PaymentPending, PSPRef: "PSP-" + randHex(6), CreatedAt: p.now(),
@@ -99,8 +108,12 @@ func (p *Platform) HandlePSPWebhook(body []byte, signature string) (*Payment, er
 		now := p.now()
 		pay.Status = PaymentSucceeded
 		pay.SettledAt = &now
-		t := p.issueTitleLocked(pay)
-		pay.TitleID = t.ID
+		if p.products[pay.ProductID].Kind == ProductWallet {
+			p.creditWalletLocked(pay)
+		} else {
+			t := p.issueTitleLocked(pay)
+			pay.TitleID = t.ID
+		}
 	case "failed":
 		pay.Status = PaymentFailed
 	default:
@@ -205,12 +218,20 @@ func (p *Platform) History(pr Principal) ([]HistoryItem, error) {
 		if pay.TravelerID != pr.TravelerID {
 			continue
 		}
-		name := pay.ProductID
+		label, detail := "Achat · "+pay.ProductID, ""
 		if prod := p.products[pay.ProductID]; prod != nil {
-			name = prod.Name
+			label = "Achat · " + prod.Name
+			if prod.Kind == ProductWallet {
+				label = "Recharge du porte-monnaie"
+			}
 		}
-		out = append(out, HistoryItem{At: pay.CreatedAt, Kind: "purchase", Label: "Achat · " + name,
-			Detail: p.operators[pay.OperatorID].Name, Amount: pay.Amount, Status: string(pay.Status)})
+		if op := p.operators[pay.OperatorID]; op != nil {
+			detail = op.Name
+		} else {
+			detail = "Metala Pass"
+		}
+		out = append(out, HistoryItem{At: pay.CreatedAt, Kind: "purchase", Label: label,
+			Detail: detail, Amount: pay.Amount, Status: string(pay.Status)})
 	}
 	for _, v := range p.validations {
 		if v.TravelerID != pr.TravelerID {
