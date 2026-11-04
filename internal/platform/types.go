@@ -23,14 +23,28 @@ type Principal struct {
 	TravelerID string `json:"traveler_id,omitempty"`
 	OperatorID string `json:"operator_id,omitempty"`
 	DeviceID   string `json:"device_id,omitempty"`
+	DriverID   string `json:"driver_id,omitempty"`
+	ShiftID    string `json:"shift_id,omitempty"`
 	Name       string `json:"name,omitempty"`
 }
 
+// Catégorie d'opérateur : Metala sert aussi bien l'entreprise publique que
+// le propriétaire d'un seul taxi.
+type OperatorKind string
+
+const (
+	OpPublic    OperatorKind = "public"    // entreprise publique de transport
+	OpPrivate   OperatorKind = "prive"     // compagnie privée, navettes
+	OpArtisanal OperatorKind = "artisanal" // gbaka, woro-woro (syndicats, propriétaires)
+	OpTaxi      OperatorKind = "taxi"      // taxis compteurs
+)
+
 type Operator struct {
-	ID             string  `json:"id"`
-	Name           string  `json:"name"`
-	Color          string  `json:"color"`
-	CommissionRate float64 `json:"commission_rate"` // ex. 0.015 = 1,5 %
+	ID             string       `json:"id"`
+	Name           string       `json:"name"`
+	Kind           OperatorKind `json:"kind"`
+	Color          string       `json:"color"`
+	CommissionRate float64      `json:"commission_rate"` // ex. 0.015 = 1,5 %
 }
 
 type Stop struct {
@@ -42,14 +56,36 @@ type Stop struct {
 
 type LatLon [2]float64 // [lat, lon]
 
+// Mode de transport : Metala fédère tout transport collectif.
+type Mode string
+
+const (
+	ModeBus     Mode = "bus"     // autobus
+	ModeGbaka   Mode = "gbaka"   // minibus
+	ModeBoat    Mode = "bateau"  // bateau-bus lagunaire
+	ModeShuttle Mode = "navette" // navette (entreprise, privée)
+	ModeWoro    Mode = "woro"    // woro-woro (taxi collectif)
+	ModeTaxi    Mode = "taxi"    // taxi compteur : pas de ligne, prix au compteur
+)
+
 type Line struct {
 	ID         string   `json:"id"`
 	OperatorID string   `json:"operator_id"`
+	Mode       Mode     `json:"mode"`
 	Code       string   `json:"code"`
 	Name       string   `json:"name"`
 	Color      string   `json:"color"`
 	StopIDs    []string `json:"stop_ids"`
 	Shape      []LatLon `json:"shape"`
+	// Offre de service (horaires théoriques) : un départ de chaque terminus
+	// toutes les HeadwayMin minutes entre FirstDep et LastDep.
+	HeadwayMin int     `json:"headway_min"`
+	FirstDep   string  `json:"first_dep"` // "05:00"
+	LastDep    string  `json:"last_dep"`  // "22:00"
+	SpeedKmh   float64 `json:"speed_kmh"` // vitesse commerciale
+	Reservable bool    `json:"reservable"`
+	// Minutes depuis le départ du terminus (sens aller) pour chaque arrêt.
+	StopMinutes []float64 `json:"stop_minutes"`
 	// distances cumulées (m) le long du tracé, calculées au chargement
 	shapeDist []float64
 	stopDist  map[string]float64
@@ -58,7 +94,8 @@ type Line struct {
 type Vehicle struct {
 	ID              string `json:"id"`
 	OperatorID      string `json:"operator_id"`
-	LineID          string `json:"line_id"`
+	LineID          string `json:"line_id"` // vide pour un taxi compteur
+	Mode            Mode   `json:"mode"`
 	Plate           string `json:"plate"`
 	Capacity        int    `json:"capacity"`
 	ReservableSeats int    `json:"reservable_seats"`
@@ -98,6 +135,18 @@ type Traveler struct {
 	Phone     string    `json:"phone"`
 	Name      string    `json:"name"`
 	CreatedAt time.Time `json:"created_at"`
+	Home      *Place    `json:"home,omitempty"`
+	Work      *Place    `json:"work,omitempty"`
+	Budget    int64     `json:"budget"` // budget transport mensuel (FCFA), 0 = non défini
+}
+
+// Place est un lieu quelconque (domicile, travail, repère) : pas forcément un arrêt.
+type Place struct {
+	ID   string  `json:"id,omitempty"`
+	Name string  `json:"name"`
+	Kind string  `json:"kind,omitempty"` // home | work | landmark | stop
+	Lat  float64 `json:"lat"`
+	Lon  float64 `json:"lon"`
 }
 
 type CardStatus string
@@ -206,8 +255,10 @@ type Validation struct {
 	Message        string           `json:"message"`
 	TripsRemaining *int             `json:"trips_remaining,omitempty"`
 	ValidUntil     *time.Time       `json:"valid_until,omitempty"`
-	Debited        int64            `json:"debited"`          // valeur reconnue (FCFA)
-	Source         string           `json:"source,omitempty"` // title | wallet
+	Debited        int64            `json:"debited"`           // valeur reconnue (FCFA)
+	Source         string           `json:"source,omitempty"`  // title | wallet
+	Channel        string           `json:"channel,omitempty"` // card | phone
+	DriverID       string           `json:"driver_id,omitempty"`
 	Offline        bool             `json:"offline,omitempty"`
 	WalletBalance  *int64           `json:"wallet_balance,omitempty"`
 }

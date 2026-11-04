@@ -108,6 +108,10 @@ type Platform struct {
 	reservations  map[string]*Reservation
 	ledger        []*LedgerEntry
 	epoch         int
+	places        []Place // repères publics (marchés, hôpitaux, administrations…)
+	drivers       map[string]*Driver
+	shifts        map[string]*Shift
+	usedTokens    map[string]bool
 	order         []string // ordre d'insertion des IDs de titres (historique)
 }
 
@@ -142,6 +146,10 @@ func (p *Platform) resetStateLocked() {
 	p.departures = map[string]*Departure{}
 	p.reservations = map[string]*Reservation{}
 	p.ledger = nil
+	p.places = nil
+	p.drivers = map[string]*Driver{}
+	p.shifts = map[string]*Shift{}
+	p.usedTokens = map[string]bool{}
 }
 
 // Reset remet la démonstration dans son état initial (mode démo uniquement).

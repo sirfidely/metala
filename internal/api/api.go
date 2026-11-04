@@ -53,7 +53,31 @@ func (s *Server) Handler() http.Handler {
 		writeJSON(w, 200, s.p.Departures(r.URL.Query().Get("line_id")))
 	})
 
+	mux.HandleFunc("GET /api/places", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 200, s.p.Places(r.URL.Query().Get("q")))
+	})
+	mux.HandleFunc("POST /api/journeys", func(w http.ResponseWriter, r *http.Request) {
+		var q platform.JourneyQuery
+		if !readJSON(w, r, &q) {
+			return
+		}
+		js, err := s.p.PlanJourneys(q)
+		respond(w, js, err)
+	})
+
 	// Authentification
+	mux.HandleFunc("POST /api/auth/driver", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Phone     string `json:"phone"`
+			PIN       string `json:"pin"`
+			VehicleID string `json:"vehicle_id"`
+		}
+		if !readJSON(w, r, &in) {
+			return
+		}
+		tok, pr, err := s.p.DriverLogin(in.Phone, in.PIN, in.VehicleID)
+		respond(w, map[string]any{"token": tok, "principal": pr}, err)
+	})
 	mux.HandleFunc("POST /api/auth/otp/request", s.otpRequest)
 	mux.HandleFunc("POST /api/auth/otp/verify", s.otpVerify)
 	mux.HandleFunc("POST /api/auth/staff", s.staffLogin)
@@ -81,6 +105,33 @@ func (s *Server) Handler() http.Handler {
 		}
 		pay, err := s.p.CreatePurchase(pr, in.ProductID)
 		respond(w, pay, err)
+	}))
+	mux.Handle("GET /api/me/budget", s.auth(func(w http.ResponseWriter, r *http.Request, pr platform.Principal) {
+		b, err := s.p.Budget(pr)
+		respond(w, b, err)
+	}))
+	mux.Handle("PUT /api/me/budget", s.auth(func(w http.ResponseWriter, r *http.Request, pr platform.Principal) {
+		var in struct {
+			Amount int64 `json:"amount"`
+		}
+		if !readJSON(w, r, &in) {
+			return
+		}
+		respond(w, map[string]bool{"ok": true}, s.p.SetBudget(pr, in.Amount))
+	}))
+	mux.Handle("PUT /api/me/places", s.auth(func(w http.ResponseWriter, r *http.Request, pr platform.Principal) {
+		var in struct {
+			Home *platform.Place `json:"home"`
+			Work *platform.Place `json:"work"`
+		}
+		if !readJSON(w, r, &in) {
+			return
+		}
+		respond(w, map[string]bool{"ok": true}, s.p.SetPlaces(pr, in.Home, in.Work))
+	}))
+	mux.Handle("GET /api/me/pay-token", s.auth(func(w http.ResponseWriter, r *http.Request, pr platform.Principal) {
+		tok, exp, err := s.p.PayToken(pr)
+		respond(w, map[string]any{"token": tok, "expires_at": exp}, err)
 	}))
 	mux.Handle("POST /api/me/cards/{uid}/block", s.auth(func(w http.ResponseWriter, r *http.Request, pr platform.Principal) {
 		respond(w, map[string]bool{"ok": true}, s.p.BlockMyCard(pr, r.PathValue("uid")))
@@ -124,6 +175,14 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		v, err := s.p.Validate(pr, in)
+		respond(w, v, err)
+	}))
+	mux.Handle("GET /api/scan/shift", s.auth(func(w http.ResponseWriter, r *http.Request, pr platform.Principal) {
+		v, err := s.p.ShiftSummary(pr)
+		respond(w, v, err)
+	}))
+	mux.Handle("POST /api/scan/shift/end", s.auth(func(w http.ResponseWriter, r *http.Request, pr platform.Principal) {
+		v, err := s.p.EndShift(pr, bearer(r))
 		respond(w, v, err)
 	}))
 	mux.Handle("GET /api/scan/config", s.auth(func(w http.ResponseWriter, r *http.Request, pr platform.Principal) {
@@ -176,6 +235,38 @@ func (s *Server) Handler() http.Handler {
 		}
 		respond(w, map[string]bool{"ok": true}, s.p.FreezeDevice(pr, r.PathValue("id"), in.Frozen))
 	}))
+	mux.Handle("POST /api/fleet/vehicles", s.auth(func(w http.ResponseWriter, r *http.Request, pr platform.Principal) {
+		var in platform.NewVehicle
+		if !readJSON(w, r, &in) {
+			return
+		}
+		v, err := s.p.AddVehicle(pr, in)
+		respond(w, v, err)
+	}))
+	mux.Handle("GET /api/fleet/drivers", s.auth(func(w http.ResponseWriter, r *http.Request, pr platform.Principal) {
+		d, err := s.p.Drivers(pr, op(r))
+		respond(w, d, err)
+	}))
+	mux.Handle("POST /api/fleet/drivers", s.auth(func(w http.ResponseWriter, r *http.Request, pr platform.Principal) {
+		var in platform.NewDriver
+		if !readJSON(w, r, &in) {
+			return
+		}
+		d, err := s.p.AddDriver(pr, in)
+		respond(w, d, err)
+	}))
+	mux.Handle("GET /api/admin/operators", s.auth(func(w http.ResponseWriter, r *http.Request, pr platform.Principal) {
+		o, err := s.p.Operators(pr)
+		respond(w, o, err)
+	}))
+	mux.Handle("POST /api/admin/operators", s.auth(func(w http.ResponseWriter, r *http.Request, pr platform.Principal) {
+		var in platform.NewOperator
+		if !readJSON(w, r, &in) {
+			return
+		}
+		o, err := s.p.AddOperator(pr, in)
+		respond(w, o, err)
+	}))
 	mux.Handle("POST /api/admin/cards/{uid}/revoke", s.auth(func(w http.ResponseWriter, r *http.Request, pr platform.Principal) {
 		respond(w, map[string]bool{"ok": true}, s.p.RevokeCard(pr, r.PathValue("uid")))
 	}))
@@ -184,9 +275,14 @@ func (s *Server) Handler() http.Handler {
 	if dev {
 		mux.HandleFunc("GET /api/dev/inventory", func(w http.ResponseWriter, r *http.Request) {
 			devs, cards := s.p.DevInventory()
-			writeJSON(w, 200, map[string]any{"devices": devs, "cards": cards,
+			writeJSON(w, 200, map[string]any{"devices": devs, "cards": cards, "drivers": s.p.DevDrivers(), "driver_pin": platform.DemoDriverPIN,
 				"staff":          []string{"fleet@lagune.demo", "fleet@ebene.demo", "admin@metala.demo"},
 				"staff_password": platform.DemoStaffPassword})
+		})
+		// Joue le rôle de la caméra du valideur qui lit le QR affiché par l'App.
+		mux.HandleFunc("POST /api/dev/travelers/{phone}/pay-token", func(w http.ResponseWriter, r *http.Request) {
+			tok, err := s.p.DevPayToken(r.PathValue("phone"))
+			respond(w, map[string]string{"token": tok}, err)
 		})
 		mux.HandleFunc("POST /api/dev/reset", func(w http.ResponseWriter, r *http.Request) {
 			respond(w, map[string]bool{"ok": true}, s.p.Reset())

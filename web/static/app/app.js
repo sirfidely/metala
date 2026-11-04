@@ -1,48 +1,57 @@
 import {
   api, fcfa, hhmm, ddmm, esc, toast, store, sessionStore, params, embedded, freshnessBadge,
-  createMap, drawNetwork, onStopClick, fitLines, VehicleLayer, subscribeVehicles, along, until,
+  createMap, VehicleLayer, subscribeVehicles, until, TZ,
 } from "/shared/metala.js";
 import { ic } from "/shared/icons.js";
 
 const $ = (s) => document.querySelector(s);
 const AWA_PHONE = "07 00 00 00 01";
-const DEFAULT_STOP = "st_yop_siporex";
-const SPEED_KMH = 18;
+
+const MODES = {
+  bus: { label: "Bus", icon: "bus" },
+  navette: { label: "Navette", icon: "van" },
+  bateau: { label: "Bateau-bus", icon: "boat" },
+  gbaka: { label: "Gbaka", icon: "van" },
+  woro: { label: "Woro-woro", icon: "taxi" },
+  taxi: { label: "Taxi compteur", icon: "taxi" },
+};
 
 const S = {
   token: sessionStore.get("metala.app.token"),
   me: null, network: null, products: [], vehicles: [],
-  stack: [], route: null, map: null, layer: null, sheet: null,
-  alerts: new Map(),
-  favs: JSON.parse(store.get("metala.app.favs") || '{"lines":["ln_m2"],"stops":["st_yop_siporex"]}'),
-  settings: JSON.parse(store.get("metala.app.settings") || '{"notif":true,"bio":true}'),
+  stack: [], route: null, maps: [], layers: [],
+  favs: JSON.parse(store.get("metala.app.favlines") || '["ln_m2"]'),
+  trip: null, // { from, to, when: now|depart|arrive, date, time, results }
+  journeys: {},
 };
 if (embedded) { document.body.classList.add("embed"); $("#banner").classList.add("hidden"); }
 
-// Icônes de la barre d'onglets
-const TABS = { home: "home", lines: "grid", pass: "scan", map: "map", profile: "user" };
-document.querySelectorAll(".tabbar button").forEach((b) => { b.innerHTML = ic(TABS[b.dataset.tab], b.dataset.tab === "pass" ? 28 : 24); });
+const TAB_ICONS = { lines: "bus", trip: "route", pass: "qr", budget: "chart", profile: "user" };
+document.querySelectorAll(".tabbar button").forEach((b) => {
+  const t = b.dataset.tab;
+  if (t === "pass") b.innerHTML = ic("qr", 28);
+  else b.querySelector(".ti").innerHTML = ic(TAB_ICONS[t], 22);
+});
 $("#nav-back").innerHTML = ic("back");
 
 // ---------- Aides ----------
 const stopById = (id) => S.network.stops.find((s) => s.id === id);
 const lineById = (id) => S.network.lines.find((l) => l.id === id);
+const opById = (id) => S.network.operators.find((o) => o.id === id);
+const modeIc = (mode, color, size = 20) => `<span class="mode-ic" style="background:${color}">${ic(MODES[mode]?.icon || "bus", size)}</span>`;
 const chip = (l) => `<span class="line-chip" style="background:${l.color}">${esc(l.code)}</span>`;
-const terminus = (l, dir) => stopById(dir >= 0 ? l.stop_ids.at(-1) : l.stop_ids[0])?.name || "";
-const linesAt = (stopId) => S.network.lines.filter((l) => l.stop_ids.includes(stopId));
+const A = (o) => esc(JSON.stringify(o));
+const num = (n) => new Intl.NumberFormat("fr-FR").format(n || 0);
 const firstName = () => (S.me?.traveler.name || "").split(/[\s(]/)[0] || "Voyageur";
 const card = () => S.me?.cards[0];
-const etaHtml = (a) => a.eta_minutes <= 0 ? `<div class="eta now"><b>À l’arrêt</b></div>`
-  : `<div class="eta"><b>${a.degraded ? "~" : ""}${a.eta_minutes}</b><small>min</small></div>`;
-const isFav = (k, id) => S.favs[k].includes(id);
-const star = (k, id) => `<button class="star ${isFav(k, id) ? "on" : ""}" data-fav="${k}:${id}" aria-label="Favori">${ic("star", 22)}</button>`;
-const A = (o) => esc(JSON.stringify(o));
-const kindDesc = (p) => p.kind === "monthly" ? `Illimité · ${p.validity_days} j` : `${p.trips} trajet${p.trips > 1 ? "s" : ""} · ${p.validity_days === 1 ? "24 h" : p.validity_days + " j"}`;
-const num = (n) => new Intl.NumberFormat("fr-FR").format(n || 0);
+const opKind = { public: "Entreprise publique", prive: "Compagnie privée", artisanal: "Transport artisanal", taxi: "Taxis" };
+const dayKey = (d) => new Date(d).toLocaleDateString("en-CA", { timeZone: TZ });
+const minutesTo = (t) => Math.round((new Date(t) - Date.now()) / 60000);
 function activeTitles() {
   const now = Date.now();
   return (S.me?.titles || []).filter((t) => new Date(t.valid_until) > now && (t.kind === "monthly" || t.trips_remaining > 0));
 }
+const coveredBy = (operatorId) => activeTitles().find((t) => t.operator_id === operatorId);
 
 // ---------- Connexion ----------
 async function sendOtp(phone) {
@@ -80,12 +89,12 @@ async function enter() {
   S.me = await api("/api/me", { token: S.token });
   $("#login").classList.add("hidden");
   $("#main").classList.remove("hidden");
-  go("home", {}, true);
+  go("lines", {}, true);
 }
 
 // ---------- Navigation ----------
-const TITLES = { lines: "Réseau", pass: "Mon Pass", recharge: "Recharger", search: "Itinéraire", map: "Carte", account: "Mon compte", settings: "Paramètres", trips: "Mes trajets", help: "Centre d’aide" };
-const TAB_OF = { home: "home", search: "home", lines: "lines", line: "lines", stop: "lines", pass: "pass", recharge: "pass", map: "map", profile: "profile", account: "profile", settings: "profile", trips: "profile", help: "profile" };
+const TITLES = { trip: "Trajet", journey: "Votre trajet", pass: "Payer", recharge: "Recharger", budget: "Budget transport", history: "Mes trajets", places: "Mes lieux" };
+const TAB_OF = { lines: "lines", line: "lines", trip: "trip", journey: "trip", pass: "pass", recharge: "pass", budget: "budget", profile: "profile", history: "profile", places: "profile" };
 
 function go(name, args = {}, root = false) {
   if (root) S.stack = [];
@@ -101,16 +110,15 @@ let seq = 0;
 async function render(keepScroll = false) {
   const { name, args } = S.route;
   const my = ++seq;
-  $("#appbar").classList.toggle("hidden-bar", name === "home" || name === "profile");
+  $("#appbar").classList.toggle("hidden-bar", name === "lines" || name === "profile");
   $("#title").textContent = args.title ?? TITLES[name] ?? "";
   $("#nav-back").style.visibility = S.stack.length ? "visible" : "hidden";
   document.querySelectorAll(".tabbar button").forEach((b) => b.classList.toggle("active", b.dataset.tab === TAB_OF[name]));
-  const isMap = name === "map";
-  $("#view").classList.toggle("hidden", isMap);
-  $("#mapview").classList.toggle("hidden", !isMap);
-  if (isMap) return showMap(args);
+  clearInterval(S.viewTimer);
   const html = await V[name](args);
   if (my !== seq) return;
+  for (const m of S.maps) m.remove();
+  S.maps = []; S.layers = [];
   const top = $("#view").scrollTop;
   $("#view").innerHTML = html;
   $("#view").scrollTop = keepScroll ? top : 0;
@@ -125,119 +133,403 @@ function bind(root) {
   }));
   root.querySelectorAll("[data-fav]").forEach((el) => (el.onclick = (e) => {
     e.stopPropagation();
-    const [k, id] = el.dataset.fav.split(":");
-    S.favs[k] = isFav(k, id) ? S.favs[k].filter((x) => x !== id) : [...S.favs[k], id];
-    store.set("metala.app.favs", JSON.stringify(S.favs));
-    el.classList.toggle("on", isFav(k, id));
+    const id = el.dataset.fav;
+    S.favs = S.favs.includes(id) ? S.favs.filter((x) => x !== id) : [...S.favs, id];
+    store.set("metala.app.favlines", JSON.stringify(S.favs));
+    el.classList.toggle("on", S.favs.includes(id));
   }));
   root.querySelectorAll("[data-book]").forEach((el) => (el.onclick = () => openBooking(el.dataset.book)));
-  root.querySelectorAll("[data-follow]").forEach((el) => (el.onclick = () => { const [v, s] = el.dataset.follow.split("|"); follow(v, s); }));
 }
 
-// ---------- Vues ----------
+// ---------- Itinéraires ----------
+function legsHtml(j) {
+  return `<div class="legs">${j.legs.map((l, i) => {
+    const sep = i ? `<span class="sep">›</span>` : "";
+    if (l.kind === "walk") return l.minutes >= 1 ? `${sep}<span class="w">${ic("walk", 15)}${l.minutes}</span>` : "";
+    return `${sep}<span class="lc" style="background:${l.color}">${ic(MODES[l.mode]?.icon || "bus", 14)}${esc(l.line_code)}</span>`;
+  }).join("")}</div>`;
+}
+function firstRide(j) { return j.legs.find((l) => l.kind === "ride"); }
+function liveTxt(j) {
+  const r = firstRide(j);
+  if (!r?.live) return "";
+  return `<span class="badge fresh"><span class="dot"></span>${MODES[r.mode].label} localisé · ${r.live.eta_minutes <= 0 ? "à l’arrêt" : `dans ${r.live.eta_minutes} min`}</span>`;
+}
+function fareTxt(j) {
+  const rides = j.legs.filter((l) => l.kind === "ride");
+  if (!rides.length) return "Gratuit";
+  const allCovered = rides.every((r) => coveredBy(r.operator_id));
+  return allCovered ? "Inclus dans vos titres" : fcfa(j.fare);
+}
+
+async function plan(from, to, when = "now", at = null) {
+  const body = { from, to };
+  if (at) { body.at = at; body.arrive_by = when === "arrive"; }
+  const js = await api("/api/journeys", { method: "POST", body });
+  for (const j of js) S.journeys[j.id] = j;
+  return js;
+}
+
+// ---------- Vue : Lignes (accueil) ----------
 const V = {};
 
-function passCards() {
-  const c = card();
-  const t = activeTitles()[0];
-  const titleChip = !t ? "" : t.kind === "monthly" ? `Forfait · ${ddmm(t.valid_until)}` : `${t.trips_remaining} trajets`;
-  const off = c?.status === "revoked" ? "revoked" : "";
-  return `
-    <div class="carousel" id="carousel">
-      <div class="pcard front ${off}" id="pass-card">
-        <div class="brand">METALA PASS</div><div class="nfc">${ic("nfc", 26)}</div>
-        <div class="bal-l">Porte-monnaie</div>
-        <div class="bal">${num(c?.balance)} <small>FCFA</small></div>
-        <div class="foot"><span>${off ? "Carte bloquée" : esc(firstName())}</span>${titleChip ? `<span class="chip-t">${titleChip}</span>` : ""}</div>
-      </div>
-      <div class="pcard back ${off}">
-        <div class="stripe"></div>
-        <div class="back-body">
-          <div class="uid">${c ? esc(c.uid.match(/.{1,2}/g).join(" ")) : "—"}</div>
-          <div class="kv"><span>Titulaire<b>${esc(S.me.traveler.name || "—")}</b></span><span style="text-align:right">Émise le<b>${c ? ddmm(c.issued_at) : "—"}</b></span></div>
-          <div class="kv"><span>Sans réseau<b>Oui</b></span><span style="text-align:right">Statut<b>${c?.status === "active" ? "Active" : "Bloquée"}</b></span></div>
-        </div>
-      </div>
-    </div>
-    <div class="dots" id="dots"><i class="on"></i><i></i></div>`;
-}
-function bindCarousel() {
-  const c = $("#carousel");
-  if (!c) return;
-  c.onscroll = () => {
-    const i = Math.round(c.scrollLeft / c.clientWidth);
-    document.querySelectorAll("#dots i").forEach((d, k) => d.classList.toggle("on", k === i));
-  };
-}
-
-V.home = async () => {
-  const home = S.favs.stops[0] || DEFAULT_STOP;
-  const arr = (await api(`/api/stops/${home}/arrivals`).catch(() => [])).slice(0, 3);
+V.lines = async ({ mode = "" } = {}) => {
+  const t = S.me.traveler;
+  let commute = "";
+  if (t.home && t.work) {
+    const hour = Number(new Date().toLocaleTimeString("en-GB", { hour: "2-digit", hour12: false, timeZone: TZ }));
+    const [from, to, label] = hour < 13 ? [t.home, t.work, "Maison → Travail"] : [t.work, t.home, "Travail → Maison"];
+    const js = await plan(from, to).catch(() => []);
+    const j = js[0];
+    if (j) {
+      const leave = minutesTo(j.depart);
+      commute = `<button class="commute" data-go="journey" data-a="${A({ id: j.id })}">
+        <div class="lbl">${ic(hour < 13 ? "briefcase" : "home", 15)}${label}</div>
+        <div class="big">${leave <= 0 ? "Partez maintenant" : `Partez à ${hhmm(j.depart)}`}</div>
+        <div class="meta">${legsHtml(j)}<span class="pillw">Arrivée ${hhmm(j.arrive)}</span></div>
+      </button>`;
+    }
+  }
+  const lines = S.network.lines.filter((l) => !mode || l.mode === mode);
+  const live = {};
+  for (const v of S.vehicles) if (v.freshness !== "unknown" && v.line_id) live[v.line_id] = (live[v.line_id] || 0) + 1;
+  const modes = [...new Set(S.network.lines.map((l) => l.mode))];
+  const lineRow = (l) => `<button class="row-i" data-go="line" data-a="${A({ id: l.id, title: "Ligne " + l.code })}">
+      ${modeIc(l.mode, l.color)}<div class="grow"><div class="t">${esc(l.code)} · ${esc(l.name)}</div>
+      <div class="s">${MODES[l.mode].label} · toutes les ${l.headway_min} min · ${live[l.id] || 0} en service</div></div>
+      <span class="chev">${ic("chev", 18)}</span></button>`;
+  const favs = S.favs.map(lineById).filter(Boolean);
   return `
     <div class="hello"><div class="avatar">${esc(firstName()[0])}</div>
-      <div class="who"><small>Bonjour</small><div>${esc(firstName())}</div></div>
-      <button class="icon-btn soft" data-go="search" aria-label="Rechercher">${ic("search")}</button></div>
-    ${passCards()}
-    <div class="quick">
-      <button data-go="recharge"><span class="q">${ic("plus", 26)}</span>Recharger</button>
-      <button data-go="search"><span class="q">${ic("route", 24)}</span>Itinéraire</button>
-      <button data-go="lines" data-root="1"><span class="q">${ic("bus", 24)}</span>Lignes</button>
-      <button data-go="trips"><span class="q">${ic("clock", 24)}</span>Trajets</button>
-    </div>
-    <div class="sec"><h3>Prochains passages</h3><a href="#" data-go="stop" data-a="${A({ id: home, title: stopById(home).name })}">${esc(stopById(home).name)}</a></div>
-    <div class="panel" id="home-arr">${arrivalRows(arr, home, false)}</div>`;
+      <div class="who"><small>Bonjour</small><div>${esc(firstName())}</div></div></div>
+    <button class="search-box" style="margin:6px 16px 0;width:calc(100% - 32px);display:flex;align-items:center;gap:10px;background:var(--a-surface);border:1px solid var(--a-border);border-radius:16px;padding:15px 16px;color:var(--a-muted);font-size:16px" data-go="trip" data-root="1">${ic("search", 20)}Où allez-vous ?</button>
+    ${commute}
+    ${favs.length && !mode ? `<div class="sec"><h3>Mes lignes</h3></div><div class="panel">${favs.map(lineRow).join("")}</div>` : ""}
+    <div class="sec"><h3>Réseau</h3><small>${S.network.lines.length} lignes · ${S.network.operators.length} opérateurs</small></div>
+    <div class="chips-row"><button class="fchip ${!mode ? "on" : ""}" data-m="">Tous</button>${modes.map((m) => `<button class="fchip ${mode === m ? "on" : ""}" data-m="${m}">${ic(MODES[m].icon, 15)}${MODES[m].label}</button>`).join("")}<button class="fchip ${mode === "taxi" ? "on" : ""}" data-m="taxi">${ic("taxi", 15)}Taxi</button></div>
+    ${mode === "taxi" ? `<div class="panel"><div class="row-i">${modeIc("taxi", "#E11D48")}<div class="grow"><div class="t">Taxis compteurs</div><div class="s">Pas de ligne : payez la course avec votre Pass</div></div></div></div>`
+      : `<div class="panel">${lines.map(lineRow).join("")}</div>`}`;
 };
-V.home.after = bindCarousel;
+V.lines.after = () => document.querySelectorAll(".fchip").forEach((b) => (b.onclick = () => { S.route.args = { mode: b.dataset.m }; render(true); }));
 
-function arrivalRows(arr, stopId, actions = true) {
-  if (!arr.length) return `<div class="empty">Aucun bus localisé en approche</div>`;
-  return arr.map((a) => {
-    const l = lineById(a.line_id);
-    const on = S.alerts.has(a.vehicle_id);
-    return `<div class="row-i">${chip(l)}
-      <div class="grow"><div class="t">${esc(terminus(l, a.direction))}</div><div class="s">${freshnessBadge(a.freshness, a.age_seconds)}</div>
-        ${actions ? `<div class="actions" style="margin-top:10px"><button class="btn-s ${on ? "on" : ""}" data-follow="${a.vehicle_id}|${stopId}">${ic("bell", 16)}${on ? "Activée" : "M’alerter"}</button><button class="btn-s" data-book="${a.line_id}">Réserver</button></div>` : ""}
-      </div>${etaHtml(a)}</div>`;
-  }).join("");
+// ---------- Vue : une ligne ----------
+function nextDeparturesFromTerminus(l, dir, count = 1) {
+  // Prochains départs du terminus (horaires théoriques), à l'heure d'Abidjan.
+  const now = new Date();
+  const out = [];
+  const [fh, fm] = l.first_dep.split(":").map(Number), [lh, lm] = l.last_dep.split(":").map(Number);
+  const dayStart = new Date(dayKey(now) + "T00:00:00Z");
+  for (let d = 0; d < 2 && out.length < count; d++) {
+    const base = new Date(dayStart.getTime() + d * 86400000);
+    for (let m = fh * 60 + fm; m <= lh * 60 + lm && out.length < count; m += l.headway_min) {
+      const t = new Date(base.getTime() + m * 60000);
+      if (t > now - 60000) out.push(t);
+    }
+  }
+  return out;
 }
 
-V.pass = async () => {
+V.line = async ({ id, dir = 1 }) => {
+  const l = lineById(id);
+  const op = opById(l.operator_id);
+  const n = l.stop_ids.length;
+  const order = dir > 0 ? l.stop_ids : [...l.stop_ids].reverse();
+  const offs = order.map((sid) => { const i = l.stop_ids.indexOf(sid); return dir > 0 ? l.stop_minutes[i] : l.stop_minutes[n - 1] - l.stop_minutes[i]; });
+  const [dep] = nextDeparturesFromTerminus(l, dir, 1);
+  const fare = S.products.find((p) => p.operator_id === l.operator_id && p.kind === "single");
+  const buses = S.vehicles.filter((v) => v.line_id === id && v.has_position && v.freshness !== "unknown" && (v.direction >= 0 ? 1 : -1) === dir);
+  // position approximative du bus : arrêt le plus proche
+  const near = (v) => {
+    let best = 0, bd = Infinity;
+    order.forEach((sid, i) => { const s = stopById(sid); const d = (s.lat - v.lat) ** 2 + (s.lon - v.lon) ** 2; if (d < bd) { bd = d; best = i; } });
+    return best;
+  };
+  const busAt = {};
+  for (const b of buses) { const i = near(b); (busAt[i] ||= []).push(b); }
+  const rows = order.map((sid, i) => {
+    const s = stopById(sid);
+    const t = dep ? new Date(dep.getTime() + offs[i] * 60000) : null;
+    const bus = busAt[i] ? `<div class="tl-bus ${busAt[i][0].freshness}"><span class="tl-rail"><span class="bus-dot" style="background:${l.color}">${ic(MODES[l.mode].icon, 14)}</span></span><span>${busAt[i].length > 1 ? `${busAt[i].length} véhicules` : "Véhicule"} ici · ${freshnessBadge(busAt[i][0].freshness, busAt[i][0].age_seconds)}</span></div>` : "";
+    return `${bus}<div class="tl-stop ${i === n - 1 ? "last" : ""}"><span class="tl-rail"><span class="tl-dot"></span></span><span class="tl-name">${esc(s.name)}</span><span class="tl-time">${t ? hhmm(t) : ""}</span></div>`;
+  }).join("");
+  const term = (d) => stopById(d > 0 ? l.stop_ids[n - 1] : l.stop_ids[0]).name;
+  return `
+    <div class="line-head">${modeIc(l.mode, l.color, 22)}<div class="grow">${esc(l.code)} · ${esc(l.name)}<div class="muted" style="font-size:13px;font-weight:500">${esc(op.name)} · ${opKind[op.kind] || ""}</div></div>
+      <button class="star ${S.favs.includes(id) ? "on" : ""}" data-fav="${id}" aria-label="Ligne favorite">${ic("star", 22)}</button></div>
+    <div class="minimap" id="line-map"></div>
+    <div class="facts">
+      <div class="fact"><small>Fréquence</small><b>${l.headway_min} min</b></div>
+      <div class="fact"><small>Service</small><b>${l.first_dep}–${l.last_dep}</b></div>
+      <div class="fact"><small>Tarif</small><b>${fare ? fcfa(fare.price) : "—"}</b></div>
+    </div>
+    <div class="seg" style="margin-top:14px"><button data-d="1" class="${dir > 0 ? "on" : ""}">→ ${esc(term(1))}</button><button data-d="-1" class="${dir < 0 ? "on" : ""}">→ ${esc(term(-1))}</button></div>
+    <div class="sec" style="padding-top:2px"><h3>Prochain départ</h3><small>${dep ? `${hhmm(dep)} · horaires prévus` : "service terminé"}</small></div>
+    <div class="timeline" style="--lc:${l.color}">${rows}</div>
+    ${l.reservable ? `<div class="bottom-btn"><button class="pill-btn ghost" data-book="${l.id}" style="width:100%">Réserver une place</button></div>` : ""}`;
+};
+V.line.after = async ({ id, dir = 1 }) => {
+  document.querySelectorAll(".seg [data-d]").forEach((b) => (b.onclick = () => { S.route.args = { ...S.route.args, dir: Number(b.dataset.d) }; render(true); }));
+  const l = lineById(id);
+  const map = await createMap("line-map", { dark: true, onStyle: (m, g) => drawRoute(m, [{ coords: l.shape, color: l.color }], l.stop_ids.map(stopById), g) });
+  S.maps.push(map);
+  map.scrollZoom.disable();
+  fitShape(map, l.shape, 24);
+  const layer = new VehicleLayer(map, S.network);
+  layer.filter = (v) => v.line_id === id;
+  layer.update(S.vehicles);
+  S.layers.push(layer);
+};
+
+// ---------- Cartes : tracés ----------
+function drawRoute(map, segs, stops, glyphs) {
+  const dark = !!map.metalaDark;
+  for (const id of ["r-labels", "r-stops", "r-line", "r-walk", "r-casing"]) if (map.getLayer(id)) map.removeLayer(id);
+  for (const id of ["r-segs", "r-stops"]) if (map.getSource(id)) map.removeSource(id);
+  map.addSource("r-segs", { type: "geojson", data: { type: "FeatureCollection", features: segs.map((s) => ({ type: "Feature", properties: { color: s.color || "#fff", walk: s.walk ? 1 : 0 }, geometry: { type: "LineString", coordinates: s.coords.map(([a, b]) => [b, a]) } })) } });
+  map.addLayer({ id: "r-casing", type: "line", source: "r-segs", filter: ["==", ["get", "walk"], 0], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": dark ? "#0a2530" : "#fff", "line-width": 9 } });
+  map.addLayer({ id: "r-line", type: "line", source: "r-segs", filter: ["==", ["get", "walk"], 0], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": 5 } });
+  map.addLayer({ id: "r-walk", type: "line", source: "r-segs", filter: ["==", ["get", "walk"], 1], layout: { "line-cap": "round" }, paint: { "line-color": dark ? "#eaf4f2" : "#374151", "line-width": 3, "line-dasharray": [0.5, 2] } });
+  map.addSource("r-stops", { type: "geojson", data: { type: "FeatureCollection", features: stops.map((s) => ({ type: "Feature", properties: { name: s.name }, geometry: { type: "Point", coordinates: [s.lon, s.lat] } })) } });
+  map.addLayer({ id: "r-stops", type: "circle", source: "r-stops", paint: { "circle-radius": 5, "circle-color": dark ? "#0a2530" : "#fff", "circle-stroke-color": dark ? "#fff" : "#0b5d4b", "circle-stroke-width": 2.5 } });
+  if (glyphs) map.addLayer({ id: "r-labels", type: "symbol", source: "r-stops", minzoom: 12.5, layout: { "text-field": ["get", "name"], "text-font": ["Noto Sans Bold"], "text-size": 11, "text-offset": [0, 1.1], "text-anchor": "top", "text-max-width": 8 }, paint: { "text-color": "#eaf4f2", "text-halo-color": "#0a2530", "text-halo-width": 1.5 } });
+}
+function fitShape(map, coords, padding = 30) {
+  const pts = coords.map(([a, b]) => [b, a]);
+  const bounds = pts.reduce((bb, c) => bb.extend(c), new maplibregl.LngLatBounds(pts[0], pts[0]));
+  map.fitBounds(bounds, { padding, duration: 0 });
+}
+
+// ---------- Vue : Trajet (porte-à-porte) ----------
+function defaultTrip() {
+  const t = S.me.traveler;
+  return { from: t.home || null, to: t.work || null, when: "now", date: dayKey(new Date()), time: "07:30", results: null };
+}
+const placeLabel = (p) => p ? esc(p.name) : `<span class="muted">Choisir…</span>`;
+
+V.trip = async () => {
+  S.trip ||= defaultTrip();
+  const tr = S.trip;
+  const tomorrow = dayKey(new Date(Date.now() + 86400000));
+  let res = "";
+  if (tr.results) {
+    res = tr.results.length ? tr.results.map((j) => `
+      <button class="jcard" data-go="journey" data-a="${A({ id: j.id })}">
+        <div class="times"><b>${hhmm(j.depart)} → ${hhmm(j.arrive)}</b><span>${j.minutes} min</span></div>
+        <div style="margin-top:10px">${legsHtml(j)}</div>
+        <div class="foot"><span>${j.transfers ? `${j.transfers} correspondance` : j.legs.some((l) => l.kind === "ride") ? "Direct" : "À pied"} · ${j.walk_minutes} min à pied · ${fareTxt(j)}</span>${liveTxt(j)}</div>
+      </button>`).join("") : `<div class="empty">Aucun trajet trouvé à cette heure</div>`;
+  }
+  return `
+    <div class="od">
+      <div class="od-row"><span class="pin from"></span><button class="field-btn" id="pick-from"><span><small>Départ</small>${placeLabel(tr.from)}</span></button></div>
+      <div class="od-row"><span class="pin to"></span><button class="field-btn" id="pick-to"><span><small>Arrivée</small>${placeLabel(tr.to)}</span></button></div>
+      <button class="swap" id="od-swap" aria-label="Inverser">${ic("swap", 18)}</button>
+    </div>
+    <div class="when">
+      <div class="seg"><button data-w="now" class="${tr.when === "now" ? "on" : ""}">Maintenant</button><button data-w="depart" class="${tr.when === "depart" ? "on" : ""}">Partir à</button><button data-w="arrive" class="${tr.when === "arrive" ? "on" : ""}">Arriver avant</button></div>
+      ${tr.when !== "now" ? `<div class="when-row"><input type="date" id="w-date" value="${tr.date}" aria-label="Date"><input type="time" id="w-time" value="${tr.time}" aria-label="Heure"></div>
+        <div class="chips-row" style="padding:10px 0 0"><button class="fchip ${tr.date === dayKey(new Date()) ? "on" : ""}" data-day="${dayKey(new Date())}">Aujourd’hui</button><button class="fchip ${tr.date === tomorrow ? "on" : ""}" data-day="${tomorrow}">Demain</button></div>` : ""}
+    </div>
+    <div class="bottom-btn" style="margin-top:14px"><button class="pill-btn primary" id="go-plan" style="width:100%" ${tr.from && tr.to ? "" : "disabled"}>${ic("search", 18)}Rechercher</button></div>
+    ${res}`;
+};
+V.trip.after = () => {
+  const tr = S.trip;
+  $("#pick-from").onclick = () => pickPlace("Départ", (p) => { tr.from = p; tr.results = null; render(); });
+  $("#pick-to").onclick = () => pickPlace("Arrivée", (p) => { tr.to = p; tr.results = null; render(); });
+  $("#od-swap").onclick = () => { [tr.from, tr.to] = [tr.to, tr.from]; tr.results = null; render(); };
+  document.querySelectorAll("[data-w]").forEach((b) => (b.onclick = () => { tr.when = b.dataset.w; tr.results = null; render(true); }));
+  document.querySelectorAll("[data-day]").forEach((b) => (b.onclick = () => { tr.date = b.dataset.day; render(true); }));
+  if ($("#w-date")) { $("#w-date").onchange = (e) => (tr.date = e.target.value); $("#w-time").onchange = (e) => (tr.time = e.target.value); }
+  $("#go-plan").onclick = searchTrip;
+};
+async function searchTrip() {
+  const tr = S.trip;
+  const at = tr.when === "now" ? null : new Date(`${tr.date}T${tr.time}:00Z`).toISOString(); // Abidjan = GMT
+  try { tr.results = await plan(tr.from, tr.to, tr.when, at); } catch (e) { toast(e.message, "error"); return; }
+  render(true);
+}
+
+V.journey = async ({ id }) => {
+  const j = S.journeys[id];
+  if (!j) return `<div class="empty">Trajet expiré</div>`;
+  const steps = [];
+  steps.push(`<div class="step"><span class="t">${hhmm(j.depart)}</span><span class="ico">${ic("home", 16)}</span><div class="d"><b>Partez de ${esc(j.legs[0].from.name)}</b></div></div>`);
+  for (const l of j.legs) {
+    if (l.kind === "walk") {
+      if (l.minutes >= 1) steps.push(`<div class="step"><span class="t"></span><span class="ico">${ic("walk", 16)}</span><div class="d">Marchez ${l.minutes} min<small>${num(l.meters)} m jusqu’à ${esc(l.to.name)}</small></div></div>`);
+      continue;
+    }
+    const covered = coveredBy(l.operator_id);
+    steps.push(`<div class="step"><span class="t">${hhmm(l.depart)}</span><span class="ico" style="background:${l.color};color:#fff">${ic(MODES[l.mode].icon, 16)}</span>
+      <div class="d"><b>${MODES[l.mode].label} ${esc(l.line_code)}</b> direction ${esc(l.headsign)}
+        <small>À ${esc(l.from.name)} · ${l.stops} arrêt${l.stops > 1 ? "s" : ""} · ${l.minutes} min</small>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${l.live ? freshnessBadge(l.live.freshness, l.live.age_seconds) : `<span class="badge">horaire prévu</span>`}
+        <span class="badge">${covered ? esc(covered.name) : fcfa(l.fare)}</span></div></div></div>`);
+    steps.push(`<div class="step"><span class="t">${hhmm(l.arrive)}</span><span class="ico">${ic("pin", 16)}</span><div class="d">Descendez à ${esc(l.to.name)}</div></div>`);
+  }
+  steps.push(`<div class="step"><span class="t">${hhmm(j.arrive)}</span><span class="ico" style="background:var(--a-green-2);color:#04281e">${ic("check", 16)}</span><div class="d"><b>Arrivée · ${esc(j.legs[j.legs.length - 1].to.name)}</b></div></div>`);
+  const reservable = j.legs.find((l) => l.kind === "ride" && l.reservable);
+  return `
+    <div class="minimap" id="j-map" style="height:240px"></div>
+    <div class="facts"><div class="fact"><small>Durée</small><b>${j.minutes} min</b></div><div class="fact"><small>À pied</small><b>${j.walk_minutes} min</b></div><div class="fact"><small>Prix</small><b>${fareTxt(j)}</b></div></div>
+    <div class="steps">${steps.join("")}</div>
+    <div class="bottom-btn"><button class="pill-btn primary" id="j-alert" style="width:100%">${ic("bell", 18)}Me prévenir quand partir</button>
+      ${reservable ? `<button class="pill-btn ghost" data-book="${reservable.line_id}" style="width:100%">Réserver une place · ${esc(reservable.line_code)}</button>` : ""}</div>`;
+};
+V.journey.after = async ({ id }) => {
+  const j = S.journeys[id];
+  if (!j) return;
+  $("#j-alert").onclick = () => {
+    const ms = new Date(j.depart) - Date.now() - 5 * 60000;
+    if ("Notification" in window && Notification.permission === "default") Notification.requestPermission().catch(() => {});
+    toast(ms > 0 ? `Rappel à ${hhmm(new Date(Date.now() + ms))}, 5 min avant le départ` : "Il est temps de partir !", "success");
+    if (ms > 0) setTimeout(() => {
+      toast(`Partez maintenant pour votre ${firstRide(j)?.line_code || "trajet"}`, "success");
+      if ("Notification" in window && Notification.permission === "granted") new Notification("Metala", { body: "Il est temps de partir." });
+    }, Math.min(ms, 2 ** 31 - 1));
+  };
+  const segs = j.legs.map((l) => ({ coords: l.shape, color: l.color, walk: l.kind === "walk" }));
+  const stops = j.legs.filter((l) => l.kind === "ride").flatMap((l) => [l.from, l.to]);
+  const map = await createMap("j-map", { dark: true, onStyle: (m, g) => drawRoute(m, segs, stops, g) });
+  S.maps.push(map);
+  fitShape(map, j.legs.flatMap((l) => l.shape), 30);
+  for (const [p, color] of [[j.legs[0].from, "#34d399"], [j.legs[j.legs.length - 1].to, "#f5a24b"]]) {
+    const el = document.createElement("div");
+    el.style.cssText = `width:16px;height:16px;border-radius:50%;background:${color};border:3px solid #0a2530`;
+    new maplibregl.Marker({ element: el }).setLngLat([p.lon, p.lat]).addTo(map);
+  }
+  const r = firstRide(j);
+  if (r?.live) {
+    const layer = new VehicleLayer(map, S.network);
+    layer.filter = (v) => v.vehicle_id === r.live.vehicle_id;
+    layer.focus = r.live.vehicle_id;
+    layer.update(S.vehicles);
+    S.layers.push(layer);
+  }
+};
+
+// ---------- Choix d'un lieu (n'importe où, pas seulement un arrêt) ----------
+function pickPlace(title, cb) {
+  const t = S.me.traveler;
+  const saved = [t.home && { ...t.home, icon: "home", label: "Maison" }, t.work && { ...t.work, icon: "briefcase", label: "Travail" }].filter(Boolean);
+  const done = (p) => { closeModal(); cb({ name: p.name, lat: p.lat, lon: p.lon, id: p.id }); };
+  modal(`<div class="m-head"><strong>${esc(title)}</strong><button class="icon-btn" id="pp-x">${ic("x")}</button></div>
+    <div class="phone-input" style="margin:12px 0"><span>${ic("search", 18)}</span><input id="pp-q" placeholder="Quartier, lieu, arrêt…" autocomplete="off"></div>
+    <div class="panel pick-list" style="margin:0" id="pp-list"></div>`, async () => {
+    $("#pp-x").onclick = closeModal;
+    const head = `
+      <button class="row-i" id="pp-geo"><span class="tile-ic">${ic("locate")}</span><div class="grow"><div class="t">Ma position</div></div></button>
+      <button class="row-i" id="pp-map"><span class="tile-ic">${ic("map")}</span><div class="grow"><div class="t">Choisir sur la carte</div></div></button>
+      ${saved.map((p, i) => `<button class="row-i" data-saved="${i}"><span class="tile-ic">${ic(p.icon)}</span><div class="grow"><div class="t">${p.label}</div><div class="s">${esc(p.name)}</div></div></button>`).join("")}`;
+    const fill = async (q) => {
+      const list = await api(`/api/places?q=${encodeURIComponent(q)}`).catch(() => []);
+      $("#pp-list").innerHTML = (q ? "" : head) + list.slice(0, 25).map((p, i) => `<button class="row-i" data-i="${i}"><span class="tile-ic">${ic(p.kind === "stop" ? "pin" : "star", 18)}</span><div class="grow"><div class="t">${esc(p.name)}</div><div class="s">${p.kind === "stop" ? "Arrêt" : "Lieu"}</div></div></button>`).join("");
+      $("#pp-list").querySelectorAll("[data-i]").forEach((b) => (b.onclick = () => done(list[+b.dataset.i])));
+      $("#pp-list").querySelectorAll("[data-saved]").forEach((b) => (b.onclick = () => done(saved[+b.dataset.saved])));
+      const geo = $("#pp-geo");
+      if (geo) geo.onclick = () => {
+        if (!navigator.geolocation) return toast("Géolocalisation indisponible", "error");
+        navigator.geolocation.getCurrentPosition((pos) => {
+          const { latitude: lat, longitude: lon } = pos.coords;
+          if (lat < 4.9 || lat > 5.8 || lon < -4.6 || lon > -3.5) return toast("Vous êtes hors du Grand Abidjan", "error");
+          done({ name: "Ma position", lat, lon });
+        }, () => toast("Position refusée", "error"), { timeout: 8000 });
+      };
+      const pm = $("#pp-map");
+      if (pm) pm.onclick = () => pickOnMap(title, done);
+    };
+    let deb;
+    $("#pp-q").oninput = (e) => { clearTimeout(deb); deb = setTimeout(() => fill(e.target.value.trim()), 200); };
+    fill("");
+  });
+}
+
+async function pickOnMap(title, done) {
+  modal(`<div class="m-head"><strong>${esc(title)} · sur la carte</strong><button class="icon-btn" id="pm-x">${ic("x")}</button></div>
+    <div class="picker-map"><div id="pm-map" style="position:absolute;inset:0"></div><span class="center-pin">${ic("pin", 40)}</span></div>
+    <button class="pill-btn primary" id="pm-ok" style="width:100%;margin-top:12px">Choisir ce point</button>`, async () => {
+    $("#pm-x").onclick = closeModal;
+    const map = await createMap("pm-map", { dark: true, zoom: 13 });
+    const c = S.me.traveler.home;
+    if (c) map.jumpTo({ center: [c.lon, c.lat], zoom: 14 });
+    $("#pm-ok").onclick = () => {
+      const { lng, lat } = map.getCenter();
+      map.remove();
+      done({ name: `Point choisi (${lat.toFixed(4)}, ${lng.toFixed(4)})`, lat, lon: lng });
+    };
+  });
+}
+
+// ---------- Vue : Payer (Pass) ----------
+V.pass = async ({ tab = "card" } = {}) => {
   await refreshMe();
   const c = card();
   const titles = activeTitles();
+  const off = c?.status !== "active";
+  const cardView = `
+    <div class="carousel" style="padding-top:6px"><div class="pcard front ${off ? "revoked" : ""}" id="pass-card" style="flex-basis:100%">
+      <div class="brand">METALA PASS</div><div class="nfc">${ic("nfc", 26)}</div>
+      <div class="bal-l">Porte-monnaie</div><div class="bal">${num(c?.balance)} <small>FCFA</small></div>
+      <div class="foot"><span class="mono">${c ? esc(c.uid.slice(0, 4) + " •••• " + c.uid.slice(-4)) : ""}</span><span>${off ? "Bloquée" : esc(firstName())}</span></div>
+    </div></div>
+    <div class="tap-anim">${ic("nfc", 50)}</div>
+    <p class="muted" style="text-align:center;margin:0">Posez la carte sur le valideur</p>`;
+  const phoneView = `
+    <div class="qr-box" id="qr-box"></div>
+    <div class="qr-timer" id="qr-timer"></div>
+    <p class="muted" style="text-align:center;margin:8px 16px 0">Présentez ce code au valideur · solde ${fcfa(c?.balance)}</p>`;
   return `
-    ${passCards()}
-    <div class="tap-anim">${ic("nfc", 54)}</div>
-    <p class="muted" style="text-align:center;margin:0 0 6px">Posez la carte sur le valideur</p>
+    <div class="seg"><button data-t="card" class="${tab === "card" ? "on" : ""}">${"Carte"}</button><button data-t="phone" class="${tab === "phone" ? "on" : ""}">Téléphone</button></div>
+    ${tab === "card" ? cardView : phoneView}
     ${titles.length ? `<div class="sec"><h3>Titres</h3></div><div class="panel">${titles.map((t) => `
       <div class="row-i"><span class="tile-ic">${ic("ticket")}</span><div class="grow"><div class="t">${esc(t.name)}</div>
-      <div class="s">${t.kind === "monthly" ? "Illimité" : `${t.trips_remaining} / ${t.trips_total}`} · ${ddmm(t.valid_until)}</div></div></div>`).join("")}</div>` : ""}
+      <div class="s">${t.kind === "monthly" ? "Illimité" : `${t.trips_remaining} trajets`} · jusqu’au ${ddmm(t.valid_until)}</div></div></div>`).join("")}</div>` : ""}
     <div class="bottom-btn"><button class="pill-btn primary" data-go="recharge" style="width:100%">${ic("plus", 20)}Recharger</button>
-    ${c?.status === "active" ? `<button class="pill-btn danger" id="block" style="width:100%">${ic("ban", 20)}Carte perdue</button>` : ""}</div>`;
+      ${!off ? `<button class="pill-btn danger" id="block" style="width:100%">${ic("ban", 20)}Carte perdue</button>` : ""}</div>`;
 };
-V.pass.after = () => {
-  bindCarousel();
+V.pass.after = ({ tab = "card" } = {}) => {
+  document.querySelectorAll(".seg [data-t]").forEach((b) => (b.onclick = () => { S.route.args = { tab: b.dataset.t }; render(); }));
+  if (tab === "phone") {
+    const refresh = async () => {
+      try {
+        const r = await api("/api/me/pay-token", { token: S.token });
+        const qr = qrcode(0, "M");
+        qr.addData(r.token);
+        qr.make();
+        if ($("#qr-box")) $("#qr-box").innerHTML = qr.createSvgTag({ cellSize: 6, margin: 0, scalable: true });
+        S.qrExp = new Date(r.expires_at);
+      } catch (e) { if ($("#qr-box")) $("#qr-box").innerHTML = `<p style="color:#0a2530;text-align:center">${esc(e.message)}</p>`; }
+    };
+    refresh();
+    S.viewTimer = setInterval(() => {
+      const s = Math.max(0, Math.round((S.qrExp - Date.now()) / 1000));
+      if ($("#qr-timer")) $("#qr-timer").textContent = `Code renouvelé dans ${s} s`;
+      if (s <= 5) refresh();
+    }, 1000);
+  }
   const b = $("#block");
-  if (b) b.onclick = () => modal(`<div class="success"><div class="check ko">${ic("ban", 40)}</div><strong>Bloquer la carte ?</strong><p>Refusée dans tous les bus. Solde conservé.</p></div>
+  if (b) b.onclick = () => modal(`<div class="success"><div class="check ko">${ic("ban", 40)}</div><strong>Bloquer la carte ?</strong><p>Refusée partout. Solde conservé.</p></div>
       <button class="pill-btn danger" id="blk-ok" style="width:100%">Bloquer</button><button class="pill-btn ghost" id="blk-no" style="width:100%">Annuler</button>`, () => {
     $("#blk-no").onclick = closeModal;
-    $("#blk-ok").onclick = async () => { await api(`/api/me/cards/${card().uid}/block`, { method: "POST", token: S.token }); closeModal(); toast("Carte bloquée"); render(); };
+    $("#blk-ok").onclick = async () => { await api(`/api/me/cards/${card().uid}/block`, { method: "POST", token: S.token }); closeModal(); render(); };
   });
 };
 
 V.recharge = async ({ tab = "wallet" } = {}) => {
   S.products = await api("/api/products");
   const wallet = S.products.filter((p) => p.kind === "wallet");
+  const ops = S.network.operators.filter((o) => S.products.some((p) => p.operator_id === o.id && p.kind !== "single"));
   const body = tab === "wallet" ? `
     <div class="pass-screen"><div class="lbl2">Solde actuel</div><div class="big" style="font-size:34px">${fcfa(card()?.balance)}</div></div>
     <div class="chips">${wallet.map((p, i) => `<button class="chip-amt ${i === 1 ? "on" : ""}" data-p="${p.id}">${num(p.price)}</button>`).join("")}</div>
-    <p class="muted" style="text-align:center;font-size:13px;margin:12px 0 0">Tous les bus · même sans réseau</p>
+    <p class="muted" style="text-align:center;font-size:13px;margin:12px 0 0">Bus, gbaka, bateau, woro-woro, taxi · même sans réseau</p>
     <div class="bottom-btn"><button class="pill-btn primary" id="w-go" style="width:100%">Continuer</button></div>`
-    : S.network.operators.map((op) => `
-      <div class="sec"><h3>${esc(op.name.replace(" (fictif)", ""))}</h3><small>${S.network.lines.filter((l) => l.operator_id === op.id).map(chip).join(" ")}</small></div>
-      <div class="panel">${S.products.filter((p) => p.operator_id === op.id).map((p) => `
-        <button class="row-i prod" data-buy="${p.id}"><span class="tile-ic">${ic("ticket")}</span><div class="grow"><div class="t">${esc(p.name)}</div><div class="s">${kindDesc(p)}</div></div><span class="price">${fcfa(p.price)}</span></button>`).join("")}</div>`).join("");
-  return `<div class="seg"><button data-t="wallet" class="${tab === "wallet" ? "on" : ""}">Porte-monnaie</button><button data-t="titles" class="${tab === "titles" ? "on" : ""}">Titres</button></div>${body}`;
+    : ops.map((op) => `
+      <div class="sec"><h3>${esc(op.name.replace(" (fictif)", ""))}</h3></div>
+      <div class="panel">${S.products.filter((p) => p.operator_id === op.id && p.kind !== "single").map((p) => `
+        <button class="row-i" data-buy="${p.id}"><span class="tile-ic">${ic("ticket")}</span><div class="grow"><div class="t">${esc(p.name)}</div><div class="s">${p.kind === "monthly" ? `Illimité · ${p.validity_days} j` : `${p.trips} trajets · ${p.validity_days} j`}</div></div><b>${fcfa(p.price)}</b></button>`).join("")}</div>`).join("");
+  return `<div class="seg"><button data-t="wallet" class="${tab === "wallet" ? "on" : ""}">Porte-monnaie</button><button data-t="titles" class="${tab === "titles" ? "on" : ""}">Forfaits et carnets</button></div>${body}`;
 };
 V.recharge.after = () => {
   document.querySelectorAll(".seg button").forEach((b) => (b.onclick = () => { S.route.args = { tab: b.dataset.t }; render(); }));
@@ -247,238 +539,129 @@ V.recharge.after = () => {
   document.querySelectorAll("[data-buy]").forEach((b) => (b.onclick = () => openCheckout(b.dataset.buy)));
 };
 
-V.search = async ({ from = DEFAULT_STOP, to = "st_plateau_cite" } = {}) => {
-  const served = new Set(S.network.lines.flatMap((l) => l.stop_ids));
-  const stops = S.network.stops.filter((s) => served.has(s.id)).sort((a, b) => a.name.localeCompare(b.name, "fr"));
-  const opt = (sel) => stops.map((s) => `<option value="${s.id}" ${s.id === sel ? "selected" : ""}>${esc(s.name)}</option>`).join("");
+// ---------- Vue : Budget ----------
+V.budget = async () => {
+  const b = await api("/api/me/budget", { token: S.token });
+  S.budget = b;
+  const month = new Date(b.month + "-15T12:00:00Z").toLocaleDateString("fr-FR", { month: "long", year: "numeric", timeZone: TZ });
+  const pct = b.budget ? Math.min(100, (100 * b.spent) / b.budget) : 0;
+  const projPct = b.budget ? Math.min(100, (100 * b.projected) / b.budget) : 0;
+  const over = b.budget && b.projected > b.budget;
+  const maxMode = Math.max(1, ...b.by_mode.map((m) => m.amount));
   return `
-    <div class="od">
-      <div class="od-row"><span class="pin from"></span><select id="od-from" aria-label="Départ">${opt(from)}</select></div>
-      <div class="od-row"><span class="pin to"></span><select id="od-to" aria-label="Destination">${opt(to)}</select></div>
-      <button class="swap" id="od-swap" aria-label="Inverser">${ic("swap", 18)}</button>
+    <div class="budget-hero">
+      <div class="of" style="text-transform:capitalize">${esc(month)}</div>
+      <div class="spent">${fcfa(b.spent)}</div>
+      <div class="of">${b.budget ? `sur un budget de ${fcfa(b.budget)}` : "Aucun budget défini"} · ${b.trips} trajets</div>
+      ${b.budget ? `<div class="bar"><i class="${over ? "warn" : ""}" style="width:${pct}%"></i><span class="proj" style="left:${projPct}%" title="Projection fin de mois"></span></div>` : ""}
+      <div class="row2"><span>Fin de mois estimée <b>${fcfa(b.projected)}</b></span><span>Mois dernier <b>${fcfa(b.last_month)}</b></span></div>
+      ${over ? `<div class="badge warn" style="margin-top:12px">Dépassement prévu de ${fcfa(b.projected - b.budget)}</div>` : ""}
     </div>
-    ${await routeResults(from, to)}`;
+    <div class="sec"><h3>30 derniers jours</h3><small>par jour</small></div>
+    <div class="chart" id="chart"></div>
+    ${b.by_mode.length ? `<div class="sec"><h3>Par mode de transport</h3><small>ce mois-ci</small></div>
+    <div class="panel">${b.by_mode.map((m) => `<div class="row-i">${modeIc(m.mode, "var(--a-surface-2)", 18)}<div class="grow"><div class="spread" style="display:flex;justify-content:space-between"><span class="t">${MODES[m.mode]?.label || m.mode}</span><b>${fcfa(m.amount)}</b></div>
+      <div class="hbar"><i style="width:${(100 * m.amount) / maxMode}%"></i></div><div class="s">${m.trips} trajets</div></div></div>`).join("")}</div>` : ""}
+    ${b.advice.map((a) => `<div class="advice"><b>${esc(a.title)}</b><p>${esc(a.detail)}</p><span class="save">Économie ≈ ${fcfa(a.saving)} / mois</span></div>`).join("")}
+    <div class="bottom-btn"><button class="pill-btn ghost" id="set-budget" style="width:100%">${ic("edit", 18)}${b.budget ? "Modifier mon budget" : "Définir mon budget"}</button></div>`;
 };
-V.search.after = () => {
-  const upd = (f, t) => { S.route.args = { from: f, to: t }; render(); };
-  $("#od-from").onchange = () => upd($("#od-from").value, $("#od-to").value);
-  $("#od-to").onchange = () => upd($("#od-from").value, $("#od-to").value);
-  $("#od-swap").onclick = () => upd($("#od-to").value, $("#od-from").value);
+V.budget.after = () => {
+  const b = S.budget;
+  drawDaily($("#chart"), b.daily, b.budget ? b.budget / b.days_in_month : 0);
+  $("#set-budget").onclick = () => modal(`<div class="m-head"><strong>Budget mensuel</strong><button class="icon-btn" id="bg-x">${ic("x")}</button></div>
+    <div class="phone-input" style="margin:14px 0"><input id="bg-v" inputmode="numeric" value="${b.budget || ""}" placeholder="15000"><span>FCFA</span></div>
+    <button class="pill-btn primary" id="bg-ok" style="width:100%">Enregistrer</button>`, () => {
+    $("#bg-x").onclick = closeModal;
+    $("#bg-ok").onclick = async () => {
+      try { await api("/api/me/budget", { method: "PUT", token: S.token, body: { amount: Number($("#bg-v").value.replace(/\D/g, "")) || 0 } }); closeModal(); render(); }
+      catch (e) { toast(e.message, "error"); }
+    };
+  });
 };
 
-async function routeResults(from, to) {
-  if (from === to) return `<div class="empty">Choisissez une autre destination</div>`;
-  const arrivals = await api(`/api/stops/${from}/arrivals`).catch(() => []);
-  const out = [];
-  for (const l of S.network.lines) {
-    const a = l.stop_ids.indexOf(from), b = l.stop_ids.indexOf(to);
-    if (a < 0 || b < 0) continue;
-    const dir = b > a ? 1 : -1;
-    const sF = stopById(from), sT = stopById(to);
-    const travel = Math.max(2, Math.round(Math.abs(along(l, [sT.lat, sT.lon]) - along(l, [sF.lat, sF.lon])) / (SPEED_KMH / 3.6) / 60));
-    const next = arrivals.find((x) => x.line_id === l.id && x.direction === dir);
-    const fare = S.products.filter((p) => p.operator_id === l.operator_id && p.kind === "single").sort((x, y) => x.price - y.price)[0];
-    const arrive = next ? new Date(Date.now() + (next.eta_minutes + travel) * 60000) : null;
-    out.push(`<div class="route">
-      <div class="route-head">${chip(l)}<div class="grow">${esc(terminus(l, dir))}</div>${next ? etaHtml(next) : `<div class="eta"><small>aucun bus<br>localisé</small></div>`}</div>
-      <div class="route-steps"><div>${esc(sF.name)}</div><div class="muted">${Math.abs(b - a)} arrêts · ${travel} min</div><div>${esc(sT.name)}${arrive ? ` · <b>${hhmm(arrive)}</b>` : ""}</div></div>
-      <div class="route-meta">${next ? freshnessBadge(next.freshness, next.age_seconds) : ""}${fare ? `<span class="badge">${fcfa(fare.price)}</span>` : ""}</div>
-      <div class="actions">${next ? `<button class="btn-s primary" data-follow="${next.vehicle_id}|${from}">${ic("pin", 16)}Suivre</button>` : ""}<button class="btn-s" data-book="${l.id}">Réserver</button></div>
-    </div>`);
-  }
-  return out.join("") || `<div class="empty">Pas de ligne directe</div>`;
+// Barres quotidiennes (une série, une teinte), budget journalier en pointillé, infobulle au survol.
+function drawDaily(el, days, perDay) {
+  const W = 340, H = 150, pad = { l: 4, r: 4, t: 10, b: 4 };
+  const max = Math.max(perDay * 1.15, ...days.map((d) => d.amount), 1);
+  const bw = (W - pad.l - pad.r) / days.length;
+  const y = (v) => H - pad.b - (v / max) * (H - pad.t - pad.b);
+  const bars = days.map((d, i) => {
+    const x = pad.l + i * bw + 1, w = Math.max(2, bw - 2), top = y(d.amount), h = H - pad.b - top;
+    const r = Math.min(4, w / 2, h);
+    const path = d.amount ? `M${x},${H - pad.b} V${top + r} Q${x},${top} ${x + r},${top} H${x + w - r} Q${x + w},${top} ${x + w},${top + r} V${H - pad.b} Z` : "";
+    return `<g data-i="${i}"><rect x="${pad.l + i * bw}" y="0" width="${bw}" height="${H}" fill="transparent"/>${path ? `<path d="${path}" fill="#0fa673"/>` : ""}</g>`;
+  }).join("");
+  const ref = perDay ? `<line x1="0" x2="${W}" y1="${y(perDay)}" y2="${y(perDay)}" stroke="#8fadab" stroke-width="1" stroke-dasharray="3 4"/><text x="${W - 2}" y="${y(perDay) - 4}" text-anchor="end" fill="#8fadab" font-size="10">budget/jour</text>` : "";
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Dépenses quotidiennes des 30 derniers jours"><line x1="0" x2="${W}" y1="${H - pad.b}" y2="${H - pad.b}" stroke="rgba(255,255,255,.12)"/>${ref}${bars}</svg>
+    <div class="axis"><span>${ddmm(days[0].date + "T12:00:00Z")}</span><span>aujourd’hui</span></div><div class="tip" id="tip"></div>`;
+  const tip = el.querySelector("#tip"), svg = el.querySelector("svg");
+  svg.querySelectorAll("g[data-i]").forEach((g) => {
+    const show = () => {
+      const d = days[+g.dataset.i];
+      const rect = svg.getBoundingClientRect(), host = el.getBoundingClientRect();
+      tip.innerHTML = `${new Date(d.date + "T12:00:00Z").toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short", timeZone: TZ })} · ${fcfa(d.amount)}${d.trips ? ` · ${d.trips} trajets` : ""}`;
+      tip.style.left = `${rect.left - host.left + ((+g.dataset.i + 0.5) * bw / W) * rect.width}px`;
+      tip.style.top = `${rect.top - host.top + 6}px`;
+      tip.style.opacity = 1;
+    };
+    g.onmouseenter = show; g.ontouchstart = show;
+    g.onmouseleave = () => (tip.style.opacity = 0);
+  });
 }
 
-V.lines = async ({ tab = "lines" } = {}) => {
-  const counts = {};
-  for (const v of S.vehicles) if (v.freshness !== "unknown") counts[v.line_id] = (counts[v.line_id] || 0) + 1;
-  const served = new Set(S.network.lines.flatMap((l) => l.stop_ids));
-  const stops = S.network.stops.filter((s) => served.has(s.id)).sort((a, b) => a.name.localeCompare(b.name, "fr"));
-  const lineRow = (l) => `<button class="row-i" data-go="line" data-a="${A({ id: l.id, title: "Ligne " + l.code })}">${chip(l)}<div class="grow"><div class="t">${esc(l.name)}</div><div class="s">${counts[l.id] || 0} bus en service</div></div>${star("lines", l.id)}</button>`;
-  const stopRow = (s) => `<button class="row-i" data-go="stop" data-a="${A({ id: s.id, title: s.name })}"><span class="tile-ic">${ic("pin")}</span><div class="grow"><div class="t">${esc(s.name)}</div><div class="s">${linesAt(s.id).map(chip).join("")}</div></div>${star("stops", s.id)}</button>`;
-  let body;
-  if (tab === "lines") body = `<div class="panel">${S.network.lines.map(lineRow).join("")}</div>`;
-  else if (tab === "stops") body = `<div class="panel">${stops.map(stopRow).join("")}</div>`;
-  else {
-    const fl = S.favs.lines.map(lineById).filter(Boolean), fs = S.favs.stops.map(stopById).filter(Boolean);
-    body = fl.length || fs.length ? `${fl.length ? `<div class="panel">${fl.map(lineRow).join("")}</div>` : ""}${fs.length ? `<div class="panel" style="margin-top:12px">${fs.map(stopRow).join("")}</div>` : ""}` : `<div class="empty">Aucun favori</div>`;
-  }
-  return `<div class="seg"><button data-t="lines" class="${tab === "lines" ? "on" : ""}">Lignes</button><button data-t="stops" class="${tab === "stops" ? "on" : ""}">Arrêts</button><button data-t="favs" class="${tab === "favs" ? "on" : ""}">Favoris</button></div>${body}`;
-};
-V.lines.after = () => document.querySelectorAll(".seg button").forEach((b) => (b.onclick = () => { S.route.args = { tab: b.dataset.t }; render(); }));
-
-V.line = async ({ id }) => {
-  const l = lineById(id);
-  const stops = l.stop_ids.map(stopById);
-  const pos = stops.map((s) => along(l, [s.lat, s.lon]));
-  const buses = S.vehicles.filter((v) => v.line_id === id && v.has_position && v.freshness !== "unknown").map((v) => ({ v, d: along(l, [v.lat, v.lon]) }));
-  let rows = "";
-  stops.forEach((s, i) => {
-    rows += `<button class="tl-stop ${i === stops.length - 1 ? "last" : ""}" data-go="stop" data-a="${A({ id: s.id, title: s.name })}"><span class="tl-rail"><span class="tl-dot"></span></span><span class="tl-name">${esc(s.name)}</span></button>`;
-    if (i < stops.length - 1) for (const b of buses.filter((x) => x.d >= pos[i] && x.d < pos[i + 1])) {
-      rows += `<div class="tl-bus ${b.v.freshness}"><span class="tl-rail"><span class="bus-dot" style="background:${l.color}">${ic("bus", 14)}</span></span><span>${b.v.direction >= 0 ? "↓" : "↑"} ${esc(terminus(l, b.v.direction))}</span></div>`;
-    }
-  });
-  return `<div class="line-head">${chip(l)}<div class="grow">${esc(l.name)}</div>${star("lines", l.id)}</div>
-    <div class="timeline" style="--lc:${l.color}">${rows}</div>
-    <div class="bottom-btn"><button class="pill-btn ghost" id="line-map" style="width:100%">${ic("map", 20)}Voir sur la carte</button></div>`;
-};
-V.line.after = ({ id }) => ($("#line-map").onclick = () => go("map", { lineId: id }));
-
-V.stop = async ({ id }) => {
-  const arr = await api(`/api/stops/${id}/arrivals`).catch(() => []);
-  return `<div class="line-head"><span class="tile-ic">${ic("pin")}</span><div class="grow">${linesAt(id).map(chip).join(" ")}</div>${star("stops", id)}</div>
-    <div class="panel">${arrivalRows(arr, id)}</div>
-    <div class="bottom-btn"><button class="pill-btn ghost" id="stop-map" style="width:100%">${ic("map", 20)}Voir sur la carte</button></div>`;
-};
-V.stop.after = ({ id }) => ($("#stop-map").onclick = () => go("map", { stopId: id }));
-
+// ---------- Vue : Profil ----------
 V.profile = async () => {
   await refreshMe();
-  const me = S.me;
-  const item = (icon, label, to) => `<button class="row-i" data-go="${to}"><span class="tile-ic">${ic(icon)}</span><div class="grow"><div class="t">${label}</div></div><span class="chev">${ic("chev", 20)}</span></button>`;
+  const me = S.me, t = me.traveler;
+  const item = (icon, label, sub, to) => `<button class="row-i" data-go="${to}"><span class="tile-ic">${ic(icon)}</span><div class="grow"><div class="t">${label}</div>${sub ? `<div class="s">${sub}</div>` : ""}</div><span class="chev">${ic("chev", 20)}</span></button>`;
   return `
     <div class="profile-card"><div class="avatar">${esc(firstName()[0])}</div>
-      <div><div class="name">${esc(me.traveler.name || "Voyageur")}</div><div class="phone-pill">${ic("phone", 15)}${esc(me.traveler.phone)}</div></div></div>
-    ${passCards()}
-    <div class="panel" style="margin-top:8px">
-      ${item("user", "Mon compte", "account")}
-      ${item("clock", "Mes trajets", "trips")}
-      ${item("card", "Mon Pass", "pass")}
-      ${item("settings", "Paramètres", "settings")}
-      ${item("help", "Centre d’aide", "help")}
-    </div>`;
+      <div><div class="name">${esc(t.name || "Voyageur")}</div><div class="phone-pill">${ic("phone", 15)}${esc(t.phone)}</div></div></div>
+    <div class="panel" style="margin-top:12px">
+      ${item("home", "Mes lieux", [t.home && "Maison", t.work && "Travail"].filter(Boolean).join(" · ") || "Maison, travail", "places")}
+      ${item("clock", "Mes trajets", "Historique et réservations", "history")}
+      ${item("card", "Mon Pass", card() ? `${fcfa(card().balance)} · ${card().status === "active" ? "active" : "bloquée"}` : "", "pass")}
+    </div>
+    <div class="bottom-btn"><button class="pill-btn primary" id="logout" style="width:100%">Déconnexion</button></div>`;
 };
-V.profile.after = bindCarousel;
+V.profile.after = () => ($("#logout").onclick = async () => {
+  await api("/api/auth/logout", { method: "POST", token: S.token }).catch(() => {});
+  sessionStore.del("metala.app.token");
+  location.href = location.pathname;
+});
 
-V.account = async () => {
-  const me = S.me, c = card();
-  const kv = (icon, k, v) => `<div class="row-i"><span class="tile-ic">${ic(icon)}</span><div class="grow"><div class="s" style="margin:0 0 3px">${k}</div><div class="t">${v}</div></div></div>`;
-  return `<div style="text-align:center;padding:10px 0 18px"><div class="avatar" style="width:86px;height:86px;font-size:34px;margin:0 auto 12px">${esc(firstName()[0])}</div>
-      <div style="font-weight:800;font-size:21px">${esc(me.traveler.name || "Voyageur")}</div><div class="muted" style="font-size:13px">ID ${esc(me.traveler.id.slice(4, 14))}</div></div>
-    <div class="panel">${kv("phone", "Téléphone", esc(me.traveler.phone))}${kv("card", "Metala Pass", c ? esc(c.uid) : "—")}</div>
-    <div class="panel" style="margin-top:12px">${kv("calendar", "Inscription", new Date(me.traveler.created_at).toLocaleDateString("fr-FR"))}${kv("shield", "Statut", c?.status === "active" ? "Actif" : "Carte bloquée")}</div>
-    <div class="bottom-btn"><button class="pill-btn primary logout" style="width:100%">Déconnexion</button></div>`;
+V.places = async () => {
+  const t = S.me.traveler;
+  const row = (k, icon, label, p) => `<button class="row-i" data-k="${k}"><span class="tile-ic">${ic(icon)}</span><div class="grow"><div class="t">${label}</div><div class="s">${p ? esc(p.name) : "Non défini"}</div></div><span class="chev">${ic("edit", 18)}</span></button>`;
+  return `<div class="panel">${row("home", "home", "Maison", t.home)}${row("work", "briefcase", "Travail", t.work)}</div>`;
 };
-V.account.after = bindLogout;
+V.places.after = () => document.querySelectorAll("[data-k]").forEach((b) => (b.onclick = () => pickPlace(b.dataset.k === "home" ? "Maison" : "Travail", async (p) => {
+  const k = b.dataset.k;
+  await api("/api/me/places", { method: "PUT", token: S.token, body: { [k]: { name: p.name, lat: p.lat, lon: p.lon } } });
+  await refreshMe();
+  S.trip = null;
+  render();
+})));
 
-V.settings = async () => {
-  const tg = (k, icon, t, s) => `<button class="row-i" data-tg="${k}"><span class="tile-ic">${ic(icon)}</span><div class="grow"><div class="t">${t}</div><div class="s">${s}</div></div><span class="toggle ${S.settings[k] ? "on" : ""}"></span></button>`;
-  return `<div class="grp">Notifications</div><div class="panel">${tg("notif", "bell", "Alertes de passage", "3 min avant l’arrivée")}</div>
-    <div class="grp">Sécurité</div><div class="panel">
-      <button class="row-i"><span class="tile-ic">${ic("lock")}</span><div class="grow"><div class="t">Code PIN</div><div class="s">Pour les recharges</div></div><span class="chev">${ic("chev", 20)}</span></button>
-      ${tg("bio", "shield", "Biométrie", "Face ID ou empreinte")}</div>
-    <div class="bottom-btn"><button class="pill-btn primary logout" style="width:100%">Déconnexion</button></div>`;
-};
-V.settings.after = () => {
-  bindLogout();
-  document.querySelectorAll("[data-tg]").forEach((b) => (b.onclick = () => {
-    S.settings[b.dataset.tg] = !S.settings[b.dataset.tg];
-    store.set("metala.app.settings", JSON.stringify(S.settings));
-    b.querySelector(".toggle").classList.toggle("on", S.settings[b.dataset.tg]);
-  }));
-};
-function bindLogout() {
-  document.querySelectorAll(".logout").forEach((b) => (b.onclick = async () => {
-    await api("/api/auth/logout", { method: "POST", token: S.token }).catch(() => {});
-    sessionStore.del("metala.app.token");
-    location.href = location.pathname;
-  }));
-}
-
-V.help = async () => `<div class="panel">
-  ${[["card", "Le Pass", "Posez la carte sur le valideur."], ["wifioff", "Sans réseau", "Le porte-monnaie paie, jusqu’au solde."], ["ban", "Carte perdue", "Bloquez-la depuis Mon Pass. Solde conservé."], ["phone", "Contact", "07 00 00 00 00 (démo)"]]
-    .map(([i, t, s]) => `<div class="row-i"><span class="tile-ic">${ic(i)}</span><div class="grow"><div class="t">${t}</div><div class="s">${s}</div></div></div>`).join("")}</div>`;
-
-V.trips = async () => {
+V.history = async () => {
   const [res, hist] = await Promise.all([api("/api/me/reservations", { token: S.token }), api("/api/me/history", { token: S.token })]);
   const upcoming = res.filter((r) => r.status === "confirmed" && new Date(r.departure.depart_at) > Date.now());
   const icon = (h) => h.kind === "purchase" ? "wallet" : h.status === "accepted" ? "check" : h.status === "already_validated" ? "refresh" : "x";
   return `${upcoming.length ? `<div class="sec"><h3>Réservations</h3></div><div class="panel">${upcoming.map((r) => {
       const l = lineById(r.departure.line_id);
-      return `<div class="row-i">${chip(l)}<div class="grow"><div class="t">${hhmm(r.departure.depart_at)}</div><div class="s">${esc(stopById(l.stop_ids[0]).name)}</div></div><button class="btn-s" style="flex:none" data-cancel="${r.id}">Annuler</button></div>`;
+      return `<div class="row-i">${chip(l)}<div class="grow"><div class="t">${ddmm(r.departure.depart_at)} · ${hhmm(r.departure.depart_at)}</div><div class="s">${esc(stopById(l.stop_ids[0]).name)}</div></div><button class="btn-s" style="flex:none" data-cancel="${r.id}">Annuler</button></div>`;
     }).join("")}</div>` : ""}
     <div class="sec"><h3>Historique</h3></div>
-    ${hist.length ? `<div class="panel">${hist.map((h) => `<div class="row-i"><span class="tile-ic">${ic(icon(h), 20)}</span>
+    ${hist.length ? `<div class="panel">${hist.slice(0, 60).map((h) => `<div class="row-i"><span class="tile-ic">${ic(icon(h), 18)}</span>
       <div class="grow"><div class="t">${esc(h.label)}</div><div class="s">${esc(h.kind === "purchase" ? (h.status === "succeeded" ? fcfa(h.amount) : h.status === "pending" ? "en attente" : "échoué") : h.detail)}</div></div>
       <small class="muted">${ddmm(h.at)} ${hhmm(h.at)}</small></div>`).join("")}</div>` : `<div class="empty">Aucun trajet</div>`}`;
 };
-V.trips.after = () => document.querySelectorAll("[data-cancel]").forEach((b) => (b.onclick = async () => {
+V.history.after = () => document.querySelectorAll("[data-cancel]").forEach((b) => (b.onclick = async () => {
   await api(`/api/reservations/${b.dataset.cancel}`, { method: "DELETE", token: S.token });
   render(true);
 }));
 
-// ---------- Carte ----------
-async function showMap(args = {}) {
-  if (!S.map) {
-    S.map = await createMap("map", { zoom: 12.2, dark: true, onStyle: (m, g) => drawNetwork(m, S.network, g, { highlightLine: S.route?.args?.lineId }) });
-    onStopClick(S.map, (id) => showSheet({ stopId: id }));
-    S.layer = new VehicleLayer(S.map, S.network, { onClick: (vid) => showSheet({ vehicleId: vid }) });
-  }
-  const map = S.map;
-  map.resize();
-  drawNetwork(map, S.network, !!map.getStyle().glyphs, { highlightLine: args.lineId });
-  S.layer.focus = args.vehicleId || null;
-  S.layer.update(S.vehicles);
-  const sheetOpen = !!(args.stopId || args.vehicleId);
-  const pad = { top: 60, bottom: sheetOpen ? 220 : 40, left: 30, right: 30 };
-  if (args.lineId) fitLines(map, [lineById(args.lineId)], pad);
-  else if (args.stopId) { const s = stopById(args.stopId); map.easeTo({ center: [s.lon, s.lat], zoom: 13.5, offset: [0, -110], duration: 500 }); }
-  else if (args.vehicleId) { const v = S.vehicles.find((x) => x.vehicle_id === args.vehicleId); if (v) map.easeTo({ center: [v.lon, v.lat], zoom: 14, offset: [0, -110], duration: 500 }); }
-  else fitLines(map, S.network.lines, pad);
-  showSheet(args.stopId || args.vehicleId ? args : null);
-}
-
-async function showSheet(sel) {
-  const sh = $("#sheet");
-  S.sheet = sel;
-  if (!sel) { sh.classList.add("hidden"); return; }
-  sh.classList.remove("hidden");
-  if (sel.stopId) {
-    const s = stopById(sel.stopId);
-    const arr = await api(`/api/stops/${s.id}/arrivals`).catch(() => []);
-    if (S.sheet !== sel) return;
-    sh.innerHTML = `<div class="grab"></div><div class="sheet-head"><h3>${esc(s.name)}</h3>${star("stops", s.id)}</div><div class="panel">${arrivalRows(arr, s.id)}</div>`;
-  } else {
-    const v = S.vehicles.find((x) => x.vehicle_id === sel.vehicleId);
-    if (!v) { sh.classList.add("hidden"); return; }
-    const l = lineById(v.line_id);
-    const target = sel.stopId2 || S.alerts.get(v.vehicle_id)?.stopId;
-    let eta = "";
-    if (target) {
-      const a = (await api(`/api/stops/${target}/arrivals`).catch(() => [])).find((x) => x.vehicle_id === v.vehicle_id);
-      if (S.sheet !== sel) return;
-      if (a) eta = `<div class="row-i"><span class="tile-ic">${ic("pin")}</span><div class="grow"><div class="t">${esc(stopById(target).name)}</div>${S.alerts.has(v.vehicle_id) ? `<div class="s">${ic("bell", 14)} alerte à 3 min</div>` : ""}</div>${etaHtml(a)}</div>`;
-    }
-    sh.innerHTML = `<div class="grab"></div><div class="sheet-head">${chip(l)}<h3>${esc(terminus(l, v.direction))}</h3></div>
-      <div class="panel">${eta}<div class="row-i"><span class="tile-ic">${ic("bus")}</span><div class="grow"><div class="s" style="margin:0">${freshnessBadge(v.freshness, v.age_seconds)} <span class="badge">${v.reservable_seats} places</span></div></div></div></div>
-      <div class="actions" style="padding:0 12px"><button class="btn-s" data-book="${l.id}">Réserver</button></div>`;
-  }
-  bind(sh);
-}
-
-function follow(vid, stopId) {
-  if (S.alerts.has(vid)) { S.alerts.delete(vid); render(true); return; }
-  S.alerts.set(vid, { stopId, notified: false });
-  if ("Notification" in window && Notification.permission === "default") Notification.requestPermission().catch(() => {});
-  go("map", { vehicleId: vid, stopId2: stopId });
-}
-
-async function checkAlerts() {
-  for (const [vid, al] of S.alerts) {
-    try {
-      const a = (await api(`/api/stops/${al.stopId}/arrivals`)).find((x) => x.vehicle_id === vid);
-      if (a && a.eta_minutes <= 3 && !al.notified) {
-        al.notified = true;
-        const msg = `${a.line_code} arrive à ${stopById(al.stopId).name} dans ${Math.max(a.eta_minutes, 0)} min`;
-        toast(msg, "success");
-        if (S.settings.notif && "Notification" in window && Notification.permission === "granted") new Notification("Metala", { body: msg });
-      }
-    } catch {}
-  }
-}
-
-// ---------- Paiement ----------
+// ---------- Paiement Mobile Money et réservation ----------
 const METHODS = [
   { id: "orange", label: "Orange Money", color: "#f97316", short: "OM" },
   { id: "mtn", label: "MTN MoMo", color: "#eab308", short: "MTN" },
@@ -493,33 +676,29 @@ async function openCheckout(productId) {
   if (!S.products.length) S.products = await api("/api/products");
   const p = S.products.find((x) => x.id === productId);
   let method = METHODS[0].id;
-  const what = p.kind === "wallet" ? "Porte-monnaie Metala" : `${p.name} · ${kindDesc(p)}`;
   modal(`<div class="m-head"><strong>Paiement</strong><button class="icon-btn" id="pay-x">${ic("x")}</button></div>
-    <div class="amount">${fcfa(p.price)}</div><div class="amount-l">${esc(what)}</div>
+    <div class="amount">${fcfa(p.price)}</div><div class="amount-l">${esc(p.kind === "wallet" ? "Porte-monnaie Metala" : p.name)}</div>
     <div class="methods">${METHODS.map((m, i) => `<button class="method ${i === 0 ? "on" : ""}" data-m="${m.id}"><span class="mi" style="background:${m.color}">${m.short}</span>${m.label}</button>`).join("")}</div>
-    <button class="pill-btn primary" id="pay-go" style="width:100%">Payer</button>
-    <details class="tech"><summary>Tests</summary>
-      <label><input type="checkbox" id="pay-dup"> Confirmation envoyée deux fois</label>
-      <label><input type="checkbox" id="pay-fail"> Paiement refusé</label></details>`, () => {
+    <button class="pill-btn primary" id="pay-go" style="width:100%">Payer</button>`, () => {
     document.querySelectorAll(".method").forEach((b) => (b.onclick = () => { method = b.dataset.m; document.querySelectorAll(".method").forEach((x) => x.classList.toggle("on", x === b)); }));
     $("#pay-x").onclick = closeModal;
-    $("#pay-go").onclick = () => pay(p, method, $("#pay-dup").checked, $("#pay-fail").checked);
+    $("#pay-go").onclick = () => pay(p, method);
   });
 }
 
-async function pay(p, method, dup = false, fail = false) {
+async function pay(p, method) {
   const m = METHODS.find((x) => x.id === method) || METHODS[0];
   modal(`<div class="success"><div class="spinner"></div><strong>Validez sur votre téléphone</strong><p>${m.label} · ${fcfa(p.price)}</p></div>`);
   try {
-    const pay = await api("/api/purchases", { method: "POST", token: S.token, body: { product_id: p.id } });
+    const payment = await api("/api/purchases", { method: "POST", token: S.token, body: { product_id: p.id } });
     await new Promise((r) => setTimeout(r, 900));
-    const r = await api(`/api/dev/psp/${pay.id}/confirm?status=${fail ? "failed" : "succeeded"}${dup ? "&duplicate=1" : ""}`, { method: "POST" });
+    const r = await api(`/api/dev/psp/${payment.id}/confirm?status=succeeded`, { method: "POST" });
     await refreshMe();
     const ok = r.status === "succeeded";
     modal(`<div class="success"><div class="check ${ok ? "" : "ko"}">${ic(ok ? "check" : "x", 42)}</div>
       <strong>${ok ? (p.kind === "wallet" ? `+ ${fcfa(p.price)}` : "Titre ajouté") : "Paiement refusé"}</strong>
       <p>${ok ? (p.kind === "wallet" ? `Solde : ${fcfa(card()?.balance)}` : esc(p.name)) : "Aucun débit"}</p></div>
-      <button class="pill-btn primary" id="ok" style="width:100%">Terminé</button>`, () => ($("#ok").onclick = () => { closeModal(); go("home", {}, true); }));
+      <button class="pill-btn primary" id="ok" style="width:100%">Terminé</button>`, () => ($("#ok").onclick = () => { closeModal(); go("pass", {}, true); }));
   } catch (e) { closeModal(); toast(e.message, "error"); }
 }
 
@@ -527,6 +706,7 @@ async function openBooking(lineId) {
   const l = lineById(lineId);
   const deps = (await api(`/api/departures?line_id=${lineId}`)).slice(0, 5);
   modal(`<div class="m-head"><strong>${chip(l)} Réserver</strong><button class="icon-btn" id="bk-x">${ic("x")}</button></div>
+    <p class="muted" style="margin:6px 0 0">Départ ${esc(stopById(l.stop_ids[0]).name)}</p>
     <div class="panel" style="margin:12px 0 0">${deps.map((d) => {
       const left = d.reservable_seats - d.reserved;
       return `<div class="row-i"><div class="grow"><div class="t" style="font-size:18px">${hhmm(d.depart_at)}</div><div class="s"><span class="badge ${left ? (left === 1 ? "warn" : "ok") : "ko"}">${left ? `${left} place${left > 1 ? "s" : ""}` : "Complet"}</span></div></div>
@@ -542,27 +722,24 @@ async function openBooking(lineId) {
   });
 }
 
-// ---------- Rafraîchissement ----------
-async function tick() {
-  if (!S.route || $("#main").classList.contains("hidden")) return;
-  checkAlerts();
-  if (!$("#modal").classList.contains("hidden")) return;
-  const n = S.route.name;
-  if (n === "home") {
-    const home = S.favs.stops[0] || DEFAULT_STOP;
-    const arr = (await api(`/api/stops/${home}/arrivals`).catch(() => [])).slice(0, 3);
-    if (S.route.name === "home" && $("#home-arr")) $("#home-arr").innerHTML = arrivalRows(arr, home, false);
-  } else if (n === "map" && S.sheet) showSheet(S.sheet);
-  else if (n === "line" || n === "stop") render(true);
-}
-
 // ---------- Démo guidée ----------
 window.metalaDemo = {
   ready: () => !!S.route,
-  home: async () => { await refreshMe(); go("home", {}, true); },
-  search: () => go("search", { from: DEFAULT_STOP, to: "st_plateau_cite" }, true),
-  map: () => go("map", { stopId: DEFAULT_STOP }, true),
-  pass: () => go("pass", {}, true),
+  home: async () => { await refreshMe(); go("lines", {}, true); },
+  line: () => go("line", { id: "ln_m2", title: "Ligne M2" }, true),
+  plan: async () => {
+    const t = S.me.traveler;
+    S.trip = { ...defaultTrip(), from: t.home, to: t.work, when: "arrive", date: dayKey(new Date(Date.now() + 86400000)), time: "08:00" };
+    go("trip", {}, true);
+    await until(() => $("#go-plan"));
+    await searchTrip();
+    const first = S.trip.results?.[0];
+    if (first) { await new Promise((r) => setTimeout(r, 1200)); go("journey", { id: first.id }); }
+  },
+  search: () => window.metalaDemo.plan(),
+  map: () => window.metalaDemo.line(),
+  pass: (tab = "card") => go("pass", { tab }, true),
+  budget: () => go("budget", {}, true),
   buy: async (productId = "prd_wallet_2000") => {
     go("recharge", {}, true);
     await until(() => $("#w-go"));
@@ -572,7 +749,7 @@ window.metalaDemo = {
   },
   flashPass: async () => {
     await refreshMe();
-    go("home", {}, true);
+    go("pass", {}, true);
     const el = await until(() => document.getElementById("pass-card"));
     if (el) { el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash"); }
   },
@@ -581,8 +758,7 @@ window.metalaDemo = {
 async function boot() {
   S.network = await api("/api/network");
   S.products = await api("/api/products").catch(() => []);
-  subscribeVehicles((st) => { S.vehicles = st; if (S.layer) S.layer.update(st); });
-  setInterval(tick, 5000);
+  subscribeVehicles((st) => { S.vehicles = st; for (const l of S.layers) l.update(st); });
   if (S.token) { try { await enter(); return; } catch { sessionStore.del("metala.app.token"); S.token = null; } }
   if (params.get("demo") === "awa") await loginAsAwa().catch((e) => toast(e.message, "error"));
 }

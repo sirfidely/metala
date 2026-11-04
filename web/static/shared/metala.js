@@ -30,8 +30,10 @@ export async function api(path, { method = "GET", body, token, timeout = 8000 } 
 }
 
 export const fcfa = (n) => new Intl.NumberFormat("fr-FR").format(Math.round(n || 0)) + " FCFA";
-export const hhmm = (d) => new Date(d).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
-export const ddmm = (d) => new Date(d).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
+// Heures affichées à l'heure d'Abidjan (GMT), quel que soit le fuseau du navigateur.
+export const TZ = "Africa/Abidjan";
+export const hhmm = (d) => new Date(d).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", timeZone: TZ });
+export const ddmm = (d) => new Date(d).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", timeZone: TZ });
 export const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 export const params = new URLSearchParams(location.search);
 export const embedded = params.get("embed") === "1";

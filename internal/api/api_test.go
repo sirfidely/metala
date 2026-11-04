@@ -74,7 +74,7 @@ func TestHTTPOperatorIsolation(t *testing.T) {
 		t.Fatalf("sans jeton : %d, attendu 401", code)
 	}
 	admin := staffToken(t, srv, "admin@metala.demo")
-	if code := call(t, srv, "GET", "/api/fleet/vehicles", admin, nil, &vs); code != 200 || len(vs) != 10 {
+	if code := call(t, srv, "GET", "/api/fleet/vehicles", admin, nil, &vs); code != 200 || len(vs) != 20 {
 		t.Fatalf("admin : code %d, %d véhicules", code, len(vs))
 	}
 }

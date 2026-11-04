@@ -1,5 +1,13 @@
 // Icônes vectorielles (trait 2 px, 24 × 24), dessinées pour Metala.
 const P = {
+  walk: '<circle cx="13" cy="4.5" r="1.8"/><path d="m9 21 2.5-7 2.5 2.5V21M8 10.5 11 8l3 1 2 3 3 1M11 8l-1 5"/>',
+  boat: '<path d="M3 17c1.5 1.2 3 1.2 4.5 0s3-1.2 4.5 0 3 1.2 4.5 0 3-1.2 4.5 0"/><path d="M5 14l-1-4h16l-1 4M8 10V6h8v4M12 3v3"/>',
+  van: '<path d="M3 7a2 2 0 0 1 2-2h11l4 5v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M3 11h17M8 5v6M13 5v6"/><circle cx="7.5" cy="17.5" r="1.8"/><circle cx="16.5" cy="17.5" r="1.8"/>',
+  taxi: '<path d="M5 11l1.6-4.2A2 2 0 0 1 8.5 5.5h7a2 2 0 0 1 1.9 1.3L19 11"/><rect x="3" y="11" width="18" height="6" rx="2"/><path d="M10 3h4v2.5h-4z"/><circle cx="7.5" cy="17.5" r="1.6"/><circle cx="16.5" cy="17.5" r="1.6"/>',
+  qr: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14v.01M17 20h.01M20 17v4h-3"/>',
+  chart: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+  briefcase: '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2M3 12h18"/>',
+  edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/>',
   home: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M10 21v-6h4v6"/>',
   grid: '<circle cx="7" cy="7" r="2.2" fill="currentColor" stroke="none"/><circle cx="17" cy="7" r="2.2" fill="currentColor" stroke="none"/><circle cx="7" cy="17" r="2.2" fill="currentColor" stroke="none"/><circle cx="17" cy="17" r="2.2" fill="currentColor" stroke="none"/>',
   scan: '<path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/>',

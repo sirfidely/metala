@@ -67,9 +67,10 @@ func assertBalanced(t *testing.T, p *Platform) {
 
 func TestSeedScenarioAwa(t *testing.T) {
 	p, _ := setup(t)
+	before := awaTrips(p)
 	v := tap(t, p, device(p, "dev_101"), DemoAwa.CardUID, "t1")
-	if v.Status != ValAccepted || v.Message != "Validé — 18 trajets restants" {
-		t.Fatalf("attendu « Validé — 18 trajets restants », obtenu %q (%s)", v.Message, v.Status)
+	if v.Status != ValAccepted || v.Source != "title" || *v.TripsRemaining != before-1 {
+		t.Fatalf("montée d'Awa : %q (%s), %d trajets avant", v.Message, v.Status, before)
 	}
 	assertBalanced(t, p)
 }
@@ -81,13 +82,14 @@ func TestT004_TapRetryIsIdempotent(t *testing.T) {
 	ch, _, _ := p.IssueChallenge(dev)
 	proof, _ := p.SimulateCard(DemoAwa.CardUID, ch)
 	req := TapRequest{TapID: "same-tap", CardUID: DemoAwa.CardUID, Challenge: ch, Proof: proof}
+	usage0 := countUsage(p)
 	a, _ := p.Validate(dev, req)
 	b, _ := p.Validate(dev, req)
 	if a.ID != b.ID || *a.TripsRemaining != *b.TripsRemaining {
 		t.Fatalf("le rejeu doit renvoyer la même validation")
 	}
-	if n := countUsage(p); n != 2 { // 1 trajet au seed + 1 ici
-		t.Fatalf("écritures de consommation = %d, attendu 2", n)
+	if n := countUsage(p) - usage0; n != 1 {
+		t.Fatalf("écritures de consommation ajoutées = %d, attendu 1", n)
 	}
 	assertBalanced(t, p)
 }
@@ -134,7 +136,7 @@ func TestT008_PassbackNoDoubleDebit(t *testing.T) {
 		t.Fatalf("passback : a=%s b=%s debit=%d", a.Status, b.Status, b.Debited)
 	}
 	clk.Add(2 * time.Minute)
-	if c := tap(t, p, dev, DemoAwa.CardUID, "x3"); c.Status != ValAccepted || *c.TripsRemaining != 17 {
+	if c := tap(t, p, dev, DemoAwa.CardUID, "x3"); c.Status != ValAccepted || c.Debited == 0 {
 		t.Fatalf("après la fenêtre, nouveau trajet attendu : %+v", c)
 	}
 	assertBalanced(t, p)
@@ -376,6 +378,7 @@ func countUsage(p *Platform) int {
 
 func TestResetRestoresDemo(t *testing.T) {
 	p, _ := setup(t)
+	firstTrips := awaTrips(p)
 	tap(t, p, device(p, "dev_101"), DemoAwa.CardUID, "before")
 	tok, _, _ := p.StaffLogin("fleet@lagune.demo", DemoStaffPassword)
 	e := p.Epoch()
@@ -388,8 +391,8 @@ func TestResetRestoresDemo(t *testing.T) {
 	if _, err := p.Authenticate(tok); err == nil {
 		t.Fatal("les sessions doivent être invalidées")
 	}
-	if v := tap(t, p, device(p, "dev_101"), DemoAwa.CardUID, "after"); v.Message != "Validé — 18 trajets restants" {
-		t.Fatalf("après réinitialisation : %q", v.Message)
+	if n := awaTrips(p); n != firstTrips {
+		t.Fatalf("après réinitialisation : %d trajets, attendu %d", n, firstTrips)
 	}
 	assertBalanced(t, p)
 }
@@ -427,8 +430,9 @@ func TestWalletOnlinePayment(t *testing.T) {
 func TestOfflineWalletDebitAndSync(t *testing.T) {
 	p, _ := setup(t)
 	dev := device(p, "dev_103")
+	bal0 := awaBalance(p)
 	tx, err := p.OfflineTap("dev_103", DemoAwa.CardUID)
-	if err != nil || tx.Balance != 1700 {
+	if err != nil || tx.Balance != bal0-300 {
 		t.Fatalf("débit hors ligne : %+v %v", tx, err)
 	}
 	// Avant synchronisation, le rapprochement reste juste grâce au journal en attente.
@@ -455,7 +459,7 @@ func TestOfflineWalletDebitAndSync(t *testing.T) {
 	}
 	assertBalanced(t, p)
 	// Impossible de dépenser plus que le solde prépayé.
-	for i := 0; i < 5; i++ {
+	for i := 0; i < int(tx.Balance/300); i++ {
 		_, _ = p.OfflineTap("dev_103", DemoAwa.CardUID)
 	}
 	if _, err := p.OfflineTap("dev_103", DemoAwa.CardUID); !errors.Is(err, ErrConflict) {
@@ -468,4 +472,23 @@ func TestOfflineWalletDebitAndSync(t *testing.T) {
 	if cfg.Fare != 300 || len(cfg.Blacklist) != 1 || cfg.Blacklist[0] != DemoKoffi.CardUID {
 		t.Fatalf("configuration hors ligne : %+v", cfg)
 	}
+}
+
+func awaTrips(p *Platform) int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	n := 0
+	tid := p.travelerByPhone[DemoAwa.Phone]
+	for _, t := range p.titles {
+		if t.TravelerID == tid && t.OperatorID == "op_lagune" && p.now().Before(t.ValidUntil) {
+			n += t.TripsRemaining
+		}
+	}
+	return n
+}
+
+func awaBalance(p *Platform) int64 {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.cards[DemoAwa.CardUID].Balance
 }

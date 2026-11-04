@@ -133,3 +133,30 @@ Plafond de démonstration : 20 000 FCFA. Le statut réglementaire du porte-monna
 Instruction BCEAO n° 001-01-2024) doit être validé avec le PSP et un avis juridique avant tout encaissement réel.
 Dans le prototype, la puce est simulée côté serveur (`/api/dev/cards/{uid}/offline-debit`) ; le serveur ne
 connaît son journal que pour cette raison.
+
+## Trajets porte-à-porte
+
+Le voyageur part d'un **lieu quelconque** (domicile, travail, repère, point choisi sur la carte), pas d'un arrêt.
+`POST /api/journeys` :
+
+1. Arrêts accessibles à pied (≤ 1,5 km) autour du départ et de l'arrivée ; marche à 4,5 km/h avec un facteur de détour de 1,3.
+2. Combinaisons directes et à **une correspondance** (≤ 900 m de marche entre deux arrêts), toutes lignes et tous modes confondus.
+3. Horaires **théoriques** de chaque ligne (fréquence, premier et dernier départ, temps de parcours par arrêt) ; en « arriver avant », recherche à rebours sur 2 h 30.
+4. Si le départ est dans les 45 minutes, le **véhicule réellement attendu** (GPS) remplace l'horaire théorique.
+5. Les trajets dominés (partir plus tôt pour arriver plus tard, plus de marche ou de correspondances) sont écartés ; 4 au maximum sont proposés.
+
+L'heure de départ affichée est celle à laquelle **quitter son domicile**.
+
+## Budget transport
+
+Le budget compte ce que le voyageur **dépense pour se déplacer**, pas ce qu'il recharge : chaque trajet débité (valeur
+d'un trajet de carnet ou montant payé au porte-monnaie), plus le prix des forfaits au mois d'achat. La projection
+de fin de mois est linéaire ; les conseils comparent les 30 derniers jours aux offres (forfait, carnet) de chaque opérateur.
+
+## Chauffeurs et paiement par téléphone
+
+- **Metala Scan** n'est utilisable qu'en service : le chauffeur s'identifie (téléphone + code PIN) sur un véhicule de sa
+  compagnie. Chaque paiement est rattaché à son service ; la recette du service est calculée par le serveur.
+- **Taxi compteur** : véhicule sans ligne ; le chauffeur saisit le montant, payé au porte-monnaie (en ligne ou hors ligne).
+- **QR du téléphone** : jeton `MTL1.<charge>.<HMAC>` lié au Pass, valable 60 s et à usage unique (anti-rejeu). Il
+  exige le réseau côté valideur ; hors ligne, seule la carte NFC paie (porte-monnaie sur la puce).

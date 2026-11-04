@@ -71,6 +71,10 @@ type TapRequest struct {
 	CardUID   string `json:"card_uid"`
 	Challenge string `json:"challenge"`
 	Proof     string `json:"proof"`
+	// Paiement par téléphone : jeton QR signé affiché par Metala App.
+	PayToken string `json:"pay_token,omitempty"`
+	// Taxi compteur : montant de la course saisi par le chauffeur (FCFA).
+	Amount int64 `json:"amount,omitempty"`
 }
 
 func (p *Platform) reject(v *Validation, reason, msg string) *Validation {
@@ -114,25 +118,43 @@ func (p *Platform) Validate(pr Principal, req TapRequest) (*Validation, error) {
 		return &cp, nil
 	}
 
-	// 1. Authentification de la carte.
-	ch := p.challenges[req.Challenge]
-	switch {
-	case req.Proof == "" || req.Challenge == "":
-		return record(p.reject(v, "uid_only", "Refusé — carte non authentifiée"))
-	case ch == nil || ch.deviceID != d.ID:
-		return record(p.reject(v, "bad_challenge", "Refusé — challenge inconnu"))
-	case ch.used:
-		return record(p.reject(v, "replay", "Refusé — rejeu détecté"))
-	case now.After(ch.expires):
-		return record(p.reject(v, "challenge_expired", "Refusé — délai dépassé, représentez la carte"))
+	v.DriverID = pr.DriverID
+	metered := veh.Mode == ModeTaxi
+	if metered && (req.Amount <= 0 || req.Amount > WalletCap) {
+		return nil, fmt.Errorf("%w : montant de la course requis", ErrInvalid)
 	}
-	ch.used = true
-	card := p.cards[req.CardUID]
-	if card == nil {
-		return record(p.reject(v, "unknown_card", "Refusé — carte inconnue"))
-	}
-	if !hmac.Equal([]byte(CardProof(p.cardKey(card.UID), req.Challenge, card.UID)), []byte(req.Proof)) {
-		return record(p.reject(v, "bad_proof", "Refusé — carte non authentique"))
+
+	// 1. Authentification : carte NFC (défi/réponse) ou téléphone (jeton QR).
+	var card *Card
+	if req.PayToken != "" {
+		v.Channel = "phone"
+		uid, reason := p.checkPayTokenLocked(req.PayToken)
+		if reason != "" {
+			return record(p.reject(v, reason, "Refusé — QR invalide ou expiré"))
+		}
+		v.CardUID = uid
+		card = p.cards[uid]
+	} else {
+		v.Channel = "card"
+		ch := p.challenges[req.Challenge]
+		switch {
+		case req.Proof == "" || req.Challenge == "":
+			return record(p.reject(v, "uid_only", "Refusé — carte non authentifiée"))
+		case ch == nil || ch.deviceID != d.ID:
+			return record(p.reject(v, "bad_challenge", "Refusé — challenge inconnu"))
+		case ch.used:
+			return record(p.reject(v, "replay", "Refusé — rejeu détecté"))
+		case now.After(ch.expires):
+			return record(p.reject(v, "challenge_expired", "Refusé — délai dépassé, représentez la carte"))
+		}
+		ch.used = true
+		card = p.cards[req.CardUID]
+		if card == nil {
+			return record(p.reject(v, "unknown_card", "Refusé — carte inconnue"))
+		}
+		if !hmac.Equal([]byte(CardProof(p.cardKey(card.UID), req.Challenge, card.UID)), []byte(req.Proof)) {
+			return record(p.reject(v, "bad_proof", "Refusé — carte non authentique"))
+		}
 	}
 	v.TravelerID = card.TravelerID
 	if card.Status != CardActive {
@@ -176,6 +198,10 @@ func (p *Platform) Validate(pr Principal, req TapRequest) (*Validation, error) {
 	}
 	byExpiry(monthly)
 	byExpiry(trips)
+	fare := p.fareLocked(veh.OperatorID)
+	if metered { // taxi compteur : payé au porte-monnaie, au montant du compteur
+		monthly, trips, expired, fare = nil, nil, false, req.Amount
+	}
 
 	switch {
 	case len(monthly) > 0:
@@ -206,16 +232,15 @@ func (p *Platform) Validate(pr Principal, req TapRequest) (*Validation, error) {
 		default:
 			v.Message = fmt.Sprintf("Validé — %d trajets restants", rem)
 		}
-	case card.Balance > 0 && card.Balance >= p.fareLocked(veh.OperatorID):
+	case fare > 0 && card.Balance >= fare:
 		// Pas de titre : le porte-monnaie de la carte paie le trajet.
-		fare := p.fareLocked(veh.OperatorID)
 		card.Balance -= fare
 		card.Counter++
 		p.postWalletUsageLocked(veh.OperatorID, v.ID, fare)
 		bal := card.Balance
 		v.Status, v.Source, v.Debited, v.WalletBalance, v.TitleName = ValAccepted, "wallet", fare, &bal, "Porte-monnaie"
 		v.Message = fmt.Sprintf("Validé — solde %d FCFA", bal)
-	case card.Balance > 0:
+	case card.Balance > 0 || metered:
 		return record(p.reject(v, "insufficient_balance", fmt.Sprintf("Refusé — solde insuffisant (%d FCFA)", card.Balance)))
 	case expired:
 		return record(p.reject(v, "title_expired", "Refusé — titre expiré"))

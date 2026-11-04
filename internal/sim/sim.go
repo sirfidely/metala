@@ -34,7 +34,12 @@ func Run(ctx context.Context, p *platform.Platform, withRiders bool) {
 	for i, v := range p.Vehicles() {
 		l, ok := p.LineByID(v.LineID)
 		if !ok {
-			continue
+			// Taxi compteur : circuit libre entre Treichville, Marcory et le Plateau.
+			loop := []platform.LatLon{{5.3050, -4.0080}, {5.3000, -3.9930}, {5.2950, -3.9800}, {5.3080, -3.9850}, {5.3200, -4.0050}, {5.3150, -4.0150}, {5.3050, -4.0080}}
+			if i%2 == 1 {
+				loop = []platform.LatLon{{5.3430, -3.9990}, {5.3550, -3.9900}, {5.3650, -4.0000}, {5.3500, -4.0100}, {5.3430, -3.9990}}
+			}
+			l = platform.NewPath(loop)
 		}
 		s := &vehicleSim{v: v, line: l, dir: 1, speedKmh: 16 + rng.Float64()*8, mode: "normal"}
 		s.dist = l.Length() * float64(i%6) / 6

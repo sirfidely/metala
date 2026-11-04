@@ -15,37 +15,46 @@ du pilote proposé : **2 opérateurs, 10 véhicules, 2 corridors**.
 
 ![Démo guidée : App, Scan et Fleet côte à côte](docs/screenshots/demo-guidee.png)
 
-| Accueil | Mon Pass | Valideur hors ligne |
-|---|---|---|
-| ![Accueil](docs/screenshots/app-accueil.png) | ![Pass](docs/screenshots/app-pass.png) | ![Scan hors ligne](docs/screenshots/scan-hors-ligne.png) |
+| Lignes | Trajet porte-à-porte | Budget | Scan (chauffeur) |
+|---|---|---|---|
+| ![Lignes](docs/screenshots/app-lignes.png) | ![Trajet](docs/screenshots/app-trajet.png) | ![Budget](docs/screenshots/app-budget.png) | ![Scan](docs/screenshots/scan-chauffeur.png) |
+
+![Fleet : super administrateur](docs/screenshots/fleet-operateurs.png)
 
 ## Pour la présentation : la démo guidée
 
-Ouvrez **<http://localhost:8080/demo/>**. La page affiche **l'App, le valideur Scan et le portail Fleet côte à côte**, avec un narrateur
-qui raconte le trajet d'Awa en 10 étapes, en 3 à 4 minutes :
+Ouvrez **<http://localhost:8080/demo/>**. La page affiche **l'App du voyageur, le Scan du chauffeur et le portail Fleet du propriétaire**
+côte à côte, avec un narrateur qui raconte le trajet d'Awa en 11 étapes, en 4 minutes environ :
 
-1. Awa ouvre Metala : son Pass, son solde, les prochains bus.
-2. Elle cherche son trajet vers le Plateau.
-3. Elle voit son bus arriver sur la carte, en direct.
-4. Elle monte et présente sa carte : « Validé — 18 trajets restants ».
-5. Le transporteur voit la montée et la recette instantanément.
+1. Awa sait quand partir de chez elle (« Partez à 07:04 »).
+2. Elle prépare son trajet de demain : de sa maison à son bureau, arriver avant 8 h.
+3. Les lignes de tous les modes : tracé, arrêts, horaires, véhicules en service.
+4. Elle paie avec le **QR code** de son téléphone ; la recette du chauffeur monte.
+5. Le propriétaire de la flotte voit le paiement en direct.
 6. Une carte copiée est refusée.
-7. **Plus de réseau : le porte-monnaie de la carte paie hors ligne.**
-8. Le réseau revient : le passage est synchronisé et payé au transporteur.
-9. Awa recharge son porte-monnaie en Mobile Money.
-10. Chaque franc est rapproché : écart de 0 FCFA.
+7. **Plus de réseau : la carte paie quand même** (porte-monnaie sur la puce).
+8. Le réseau revient : les paiements hors ligne sont transmis et vérifiés.
+9. Awa consulte son **budget transport** du mois et un conseil d'économie.
+10. Elle recharge en Mobile Money.
+11. Chaque franc est rapproché : écart de 0 FCFA.
 
 Commandes : `→` étape suivante, `←` étape précédente, `R` rejouer l'action. **↺ Recommencer** remet les données à zéro.
 Sur un écran étroit, des onglets permettent de passer d'un écran à l'autre.
 
-## Les quatre briques
+## Trois applications, un moyen de paiement
 
-| Brique | Pour qui | Dans le prototype |
+Metala est le socle de **toute la mobilité du Grand Abidjan** : entreprises publiques, compagnies privées, transport
+artisanal (gbaka, woro-woro) et taxis compteurs. Un seul moyen de paiement, le **Metala Pass**.
+
+| Application | Pour qui | Dans le prototype |
 |---|---|---|
-| **Metala App** | Voyageurs | `/app/` : connexion OTP, carte en direct (MapLibre + OpenStreetMap), recherche de trajet, arrivées estimées avec fraîcheur GPS, alerte à 3 min, achat de titres, réservation, Metala Pass, historique |
-| **Metala Pass** | Voyageurs, y compris sans smartphone | Carte NFC simulée : preuve cryptographique dynamique (jamais l'UID seul) et **porte-monnaie** rechargeable, utilisable hors ligne |
-| **Metala Scan** | Conducteurs, contrôleurs | `/scan/` : valideur embarqué, décision prise par le serveur, anti double débit, refus explicite hors réseau |
-| **Metala Fleet** | Opérateurs de transport | `/fleet/` : tableau de bord, flotte et GPS, gel de terminal, validations, recettes, rapprochement PSP ↔ titres ↔ grand livre, révocation de cartes |
+| **Metala App** | Voyageurs | `/app/` : lignes de tous les modes (tracé, arrêts, horaires, véhicules en direct) ; **trajet porte-à-porte** depuis n'importe quel lieu (maison, travail, repère, point sur la carte) en « partir à » ou « arriver avant » ; **Metala Pass** (carte NFC et QR du téléphone) ; recharge Mobile Money ; **budget transport mensuel** avec projection et conseils ; réservation |
+| **Metala Pass** | Voyageurs, y compris sans smartphone | Carte NFC (défi cryptographique, jamais l'UID seul) ou QR signé à usage unique dans l'App ; porte-monnaie rechargeable, **utilisable hors ligne** |
+| **Metala Scan** | **Chauffeurs** | `/scan/` : prise de service (chauffeur, véhicule, code PIN) ; encaissement en un geste, prix fixe ou **montant du compteur** pour les taxis ; recette et passagers du service ; mode hors ligne ; bilan de fin de service |
+| **Metala Fleet** | **Propriétaires de flotte** (administrateur) et **Metala** (super administrateur) | `/fleet/` : tableau de bord en direct, véhicules (ajout avec valideur), chauffeurs (ajout, en service, recette), lignes, paiements, recettes et rapprochement ; le super administrateur inscrit les compagnies et bloque les cartes |
+
+Réseau de démonstration (fictif) : bus **M2** (entreprise publique), navette **N1** et bateau-bus **B1** (compagnies
+privées), gbaka **G7** et woro-woro **W3** (transport artisanal), et deux taxis compteurs.
 
 ## Démarrage rapide
 
@@ -69,16 +78,14 @@ go test -race ./...
 
 ### Parcours de démonstration (5 minutes)
 
-1. **App** (`/app/`) : connectez-vous avec `07 00 00 00 01` (*Awa*, fictive). Aucun SMS n'est envoyé : le code OTP s'affiche à l'écran.
-2. Départ *Yopougon Siporex*, destination *Plateau · Cité administrative* : la ligne **M2** s'affiche avec son heure d'arrivée estimée, la fraîcheur du GPS et le badge **Simulé**.
-3. **Scan** (`/scan/`) : choisissez un bus M2 et touchez le lecteur avec la carte d'Awa : **« Validé — 18 trajets restants »**.
-4. Touchez-le de nouveau : **« Déjà validé — aucun débit »**. Essayez ensuite la *carte clonée* (UID seul), puis cochez *Couper le réseau 4G* : le terminal refuse, il n'affiche jamais de faux succès.
-5. **App → Titres** : achetez un carnet en cochant *webhook en double* : **un seul** titre est émis.
-6. **Fleet** (`/fleet/`) : `fleet@lagune.demo` / `metala-demo`. Consultez les validations, les recettes et un rapprochement à **0 écart non expliqué**. Gelez un terminal, puis réessayez une validation depuis Scan.
-7. **Fleet admin** : `admin@metala.demo` / `metala-demo`. Vue tous opérateurs et révocation d'un Metala Pass.
+1. **App** (`/app/`) : « Compte démo · Awa ». L'accueil indique quand partir de chez elle ; l'onglet **Trajet** calcule un itinéraire porte-à-porte (essayez la destination *Mairie d'Abobo* : M2 puis gbaka G7).
+2. **App → Payer** (bouton central) : carte ou QR du téléphone, renouvelé toutes les minutes. **Budget** : dépenses du mois et conseils.
+3. **Scan** (`/scan/`) : choisissez *Ibrahim Koné*, un bus M2, PIN `1234`. Encaissez la carte ou le téléphone d'Awa, essayez la carte copiée, coupez le réseau, puis terminez le service.
+4. **Scan, taxi** : *Jean Kouassi*, PIN `1234`, saisissez le montant du compteur, puis encaissez.
+5. **Fleet** (`/fleet/`) : `fleet@lagune.demo` / `metala-demo` (propriétaire) : chauffeurs en service, ajout d'un véhicule, recettes.
+6. **Fleet, super administrateur** : `admin@metala.demo` / `metala-demo` : toutes les compagnies, inscription d'une nouvelle compagnie, blocage d'une carte.
 
-Comptes de démonstration : `fleet@lagune.demo`, `fleet@ebene.demo`, `admin@metala.demo` (mot de passe `metala-demo`).
-Voyageurs fictifs : Awa `07 00 00 00 01` (carnet M2), Koffi `07 00 00 00 02` (forfait N1), Yao `07 00 00 00 03` (sans titre).
+Chauffeurs de démonstration : un par compagnie, code PIN `1234`.
 
 ## Porte-monnaie et paiement hors ligne
 

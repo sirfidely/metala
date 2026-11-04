@@ -294,6 +294,7 @@ type DevDevice struct {
 	Secret   string `json:"secret"`
 	LineCode string `json:"line_code"`
 	Plate    string `json:"plate"`
+	Mode     Mode   `json:"mode"`
 }
 
 type DevCard struct {
@@ -309,7 +310,7 @@ func (p *Platform) DevInventory() ([]DevDevice, []DevCard) {
 	for _, d := range p.devices {
 		dd := DevDevice{Device: *d, Secret: d.token}
 		if v := p.vehicles[d.VehicleID]; v != nil {
-			dd.Plate = v.Plate
+			dd.Plate, dd.Mode = v.Plate, v.Mode
 			if l := p.lines[v.LineID]; l != nil {
 				dd.LineCode = l.Code
 			}

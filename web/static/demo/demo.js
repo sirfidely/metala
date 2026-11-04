@@ -3,7 +3,7 @@ import { api, until, toast } from "/shared/metala.js";
 const $ = (s) => document.querySelector(s);
 const URLS = {
   app: "/app/?demo=awa&embed=1",
-  scan: "/scan/?device=dev_101&embed=1",
+  scan: "/scan/?driver=drv_kone&vehicle=veh_101&embed=1",
   fleet: "/fleet/?demo=lagune&embed=1",
 };
 const frame = (k) => $("#f-" + k);
@@ -16,81 +16,79 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 // Étapes de la démonstration : focus = écrans mis en avant.
 const STEPS = [
   {
-    title: "Awa ouvre Metala",
-    text: "Avant de sortir, Awa voit son solde de trajets et les prochains bus à son arrêt de Yopougon, avec l’heure d’arrivée estimée.",
-    why: "<b>Pour le voyageur :</b> fini l’attente à l’aveugle au bord de la route.",
+    title: "Awa sait quand partir de chez elle",
+    text: "Dès l’ouverture, Metala calcule son trajet Maison → Travail avec les vrais horaires et la position des véhicules : « Partez à … ».",
+    why: "<b>Le problème résolu :</b> savoir quel véhicule passe, et à quelle heure, près de chez soi.",
     focus: ["app"],
     run: async () => (await hook("app")).home(),
   },
   {
-    title: "Elle cherche son trajet vers le Plateau",
-    text: "Départ, destination : Metala propose la ligne, l’heure de départ, la durée du trajet et le prix, quel que soit l’opérateur.",
-    why: "<b>Une seule application</b> pour toutes les lignes équipées : c’est la fédération des opérateurs.",
+    title: "Elle prépare son trajet de demain matin",
+    text: "Départ de sa maison, pas d’un arrêt : Metala ajoute la marche, choisit la ligne, et donne l’heure à laquelle partir pour arriver avant 8 h.",
+    why: "<b>Porte-à-porte :</b> d’un lieu à un autre, à la date et à l’heure voulues.",
     focus: ["app"],
-    run: async () => (await hook("app")).search(),
+    run: async () => (await hook("app")).plan(),
   },
   {
-    title: "Elle voit son bus arriver, en direct",
-    text: "Chaque bus est placé sur la carte à partir de sa position GPS, mise à jour toutes les 5 secondes. Si le GPS est trop ancien, le bus est grisé.",
-    why: "<b>Information fiable :</b> jamais d’heure inventée, la fraîcheur du GPS est toujours affichée.",
+    title: "Toutes les lignes, tous les modes",
+    text: "Bus, navette, bateau-bus, gbaka, woro-woro : chaque ligne montre son tracé, ses arrêts, ses horaires et ses véhicules en service.",
+    why: "<b>Un seul réseau :</b> entreprises publiques, compagnies privées et transport artisanal sur le même socle.",
     focus: ["app"],
-    run: async () => (await hook("app")).map(),
+    run: async () => (await hook("app")).line(),
   },
   {
-    title: "Elle monte et présente sa carte",
-    text: "Awa pose son Metala Pass sur le valideur. Le serveur vérifie que la carte est authentique, trouve son carnet et débite un trajet.",
-    why: "<b>Sans monnaie ni smartphone :</b> la carte suffit, réponse en moins d’une seconde.",
-    focus: ["scan", "app"],
-    run: async () => {
-      const scan = await hook("scan");
-      await scan.tap("awa");
-      await wait(600);
-      await (await hook("app")).flashPass();
-    },
+    title: "Elle paie avec son téléphone",
+    text: "Awa présente le QR code de son Metala Pass au valideur du chauffeur. Le code change toutes les minutes et ne sert qu’une fois.",
+    why: "<b>Paiement fluide :</b> ni monnaie ni ticket, et le chauffeur voit sa recette monter.",
+    focus: ["app", "scan"],
+    run: async () => { (await hook("app")).pass("phone"); await wait(1500); await (await hook("scan")).tap("awa-phone"); },
   },
   {
-    title: "Le transporteur le voit instantanément",
-    text: "La montée d’Awa apparaît dans le tableau de bord de l’opérateur, avec la recette correspondante, au milieu de l’activité de toute la flotte.",
-    why: "<b>Pour le transporteur :</b> pour la première fois, ses montées et ses recettes en temps réel.",
+    title: "Le propriétaire de la flotte le voit en direct",
+    text: "Chaque paiement apparaît dans Metala Fleet : véhicule, recette, part de chacun. Le propriétaire suit ses chauffeurs et ses véhicules.",
+    why: "<b>Pour le transporteur :</b> une recette tracée, sans fuite d’argent liquide.",
     focus: ["fleet"],
     run: async () => { const f = await hook("fleet"); f.view("dash"); await wait(300); await f.highlight("feed-card"); },
   },
   {
     title: "Une carte copiée ? Refusée.",
-    text: "Un fraudeur a copié le numéro de la carte d’Awa. Mais à chaque passage, la carte doit répondre à un défi cryptographique que seule la vraie puce sait résoudre.",
-    why: "<b>Anti-fraude :</b> copier une carte ne sert à rien, et le transporteur voit la tentative.",
+    text: "Copier le numéro d’une carte ne suffit pas : à chaque passage, la puce doit répondre à un défi cryptographique.",
+    why: "<b>Anti-fraude :</b> la carte ne peut pas être clonée.",
     focus: ["scan"],
     run: async () => (await hook("scan")).tap("clone"),
   },
   {
-    title: "Plus de réseau ? Le porte-monnaie prend le relais",
-    text: "La 4G coupe dans le bus. Le valideur continue seul : il vérifie la carte, puis débite le porte-monnaie stocké sur la puce, rechargé à l’avance par Awa. La carte signe la transaction.",
-    why: "<b>Paiement hors ligne :</b> on ne peut dépenser que le solde prépayé, donc aucune fraude par double dépense.",
+    title: "Pas de réseau ? La carte paie quand même",
+    text: "La 4G coupe. Le valideur débite le porte-monnaie stocké sur la puce du Metala Pass, rechargé à l’avance, et garde la transaction signée.",
+    why: "<b>Hors ligne :</b> on ne peut dépenser que le solde prépayé ; aucune double dépense.",
     focus: ["scan"],
     run: async () => { const s = await hook("scan"); await s.setOnline(false); await wait(400); await s.tap("awa"); },
   },
   {
-    title: "Le réseau revient : tout est synchronisé",
-    text: "Dès que la 4G revient, le valideur envoie les passages hors ligne. Le serveur vérifie chaque signature de carte et enregistre la recette du transporteur.",
-    why: "<b>Rien n’est perdu :</b> chaque passage hors ligne est vérifié et payé au transporteur.",
-    focus: ["scan", "fleet", "app"],
-    run: async () => {
-      const s = await hook("scan"); await s.setOnline(true);
-      const f = await hook("fleet"); f.view("dash"); await wait(600); await f.highlight("feed-card");
-      await (await hook("app")).flashPass();
-    },
+    title: "Le réseau revient : tout est transmis",
+    text: "Le valideur envoie les paiements hors ligne ; le serveur vérifie la signature de chaque carte et crédite le transporteur.",
+    why: "<b>Rien n’est perdu :</b> chaque passage est vérifié et payé.",
+    focus: ["scan", "fleet"],
+    run: async () => { const s = await hook("scan"); await s.setOnline(true); const f = await hook("fleet"); f.view("dash"); await wait(600); await f.highlight("feed-card"); },
   },
   {
-    title: "Awa recharge son porte-monnaie",
-    text: "Depuis son téléphone, Awa recharge 2 000 FCFA en Mobile Money. Le solde est disponible sur sa carte, utilisable dans tous les bus, même sans réseau.",
-    why: "<b>Paiements :</b> GeniusPay vers des prestataires habilités ; Metala ne garde pas l’argent des voyageurs.",
+    title: "Awa maîtrise son budget transport",
+    text: "Dépenses du mois, projection de fin de mois, répartition par mode… et un conseil quand un carnet ou un forfait lui ferait économiser.",
+    why: "<b>Pour le voyageur :</b> le transport devient un budget qu’on pilote.",
+    focus: ["app"],
+    run: async () => (await hook("app")).budget(),
+  },
+  {
+    title: "Elle recharge en Mobile Money",
+    text: "Deux touches : le porte-monnaie de son Pass est crédité, utilisable dans le bus, le gbaka, le bateau, le woro-woro ou le taxi compteur.",
+    why: "<b>Un seul moyen de paiement</b> pour toute la mobilité du Grand Abidjan.",
     focus: ["app"],
     run: async () => (await hook("app")).buy("prd_wallet_2000"),
   },
   {
     title: "Chaque franc est rapproché",
-    text: "Argent encaissé, titres émis, trajets débités, part du transporteur et commission : tout est contrôlé automatiquement et doit concorder au franc près.",
-    why: "<b>Confiance :</b> c’est la condition pour passer à une exploitation payante.",
+    text: "Argent encaissé, titres, trajets, porte-monnaie, part du transporteur et commission : tout est contrôlé automatiquement.",
+    why: "<b>Confiance :</b> c’est la condition d’une exploitation payante à grande échelle.",
     focus: ["fleet"],
     run: async () => { const f = await hook("fleet"); f.view("recon"); await wait(400); await f.highlight("v-recon"); },
   },

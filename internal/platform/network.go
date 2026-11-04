@@ -28,6 +28,13 @@ func (l *Line) prepare(stops map[string]*Stop) {
 			l.stopDist[sid] = l.project(LatLon{s.Lat, s.Lon})
 		}
 	}
+	if l.SpeedKmh <= 0 {
+		l.SpeedKmh = 18
+	}
+	l.StopMinutes = make([]float64, len(l.StopIDs))
+	for i, sid := range l.StopIDs {
+		l.StopMinutes[i] = math.Round((l.stopDist[sid]/1000/l.SpeedKmh*60+0.4*float64(i))*10) / 10
+	}
 }
 
 // Length renvoie la longueur du tracé en mètres.
@@ -137,4 +144,11 @@ func (p *Platform) Vehicles() []Vehicle {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
+}
+
+// NewPath prépare un tracé libre (déplacement d'un taxi dans le simulateur).
+func NewPath(shape []LatLon) *Line {
+	l := &Line{Shape: shape}
+	l.prepare(map[string]*Stop{})
+	return l
 }

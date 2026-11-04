@@ -13,6 +13,7 @@ type VehicleState struct {
 	OperatorID      string    `json:"operator_id"`
 	LineID          string    `json:"line_id"`
 	LineCode        string    `json:"line_code"`
+	Mode            Mode      `json:"mode"`
 	Plate           string    `json:"plate"`
 	ReservableSeats int       `json:"reservable_seats"`
 	HasPosition     bool      `json:"has_position"`
@@ -107,7 +108,7 @@ func (p *Platform) freshnessLocked(t *Telemetry) (Freshness, int) {
 
 func (p *Platform) stateLocked(v *Vehicle) VehicleState {
 	st := VehicleState{
-		VehicleID: v.ID, OperatorID: v.OperatorID, LineID: v.LineID, Plate: v.Plate,
+		VehicleID: v.ID, OperatorID: v.OperatorID, LineID: v.LineID, Mode: v.Mode, Plate: v.Plate,
 		ReservableSeats: v.ReservableSeats,
 	}
 	if l := p.lines[v.LineID]; l != nil {
@@ -167,12 +168,19 @@ func (p *Platform) Arrivals(stopID string) ([]Arrival, error) {
 	if _, ok := p.stops[stopID]; !ok {
 		return nil, ErrNotFound
 	}
+	return p.arrivalsLocked(stopID), nil
+}
+
+func (p *Platform) arrivalsLocked(stopID string) []Arrival {
 	out := []Arrival{}
-	speed := p.cfg.AvgSpeedKmh / 3.6 // m/s
 	for _, v := range p.vehicles {
 		l := p.lines[v.LineID]
 		if l == nil {
 			continue
+		}
+		speed := p.cfg.AvgSpeedKmh / 3.6 // m/s
+		if l.SpeedKmh > 0 {
+			speed = l.SpeedKmh / 3.6
 		}
 		sd, served := l.stopDist[stopID]
 		if !served {
@@ -207,5 +215,5 @@ func (p *Platform) Arrivals(stopID string) ([]Arrival, error) {
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].DistanceM < out[j].DistanceM })
-	return out, nil
+	return out
 }

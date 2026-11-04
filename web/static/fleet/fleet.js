@@ -9,15 +9,20 @@ const S = {
 if (embedded) document.body.classList.add("embed");
 document.body.classList.toggle("no-explain", !S.explain);
 
-const TITLES = { dash: "Tableau de bord", vehicles: "Flotte & terminaux", validations: "Journal des montées", recon: "Recettes & rapprochement", cards: "Cartes Metala Pass" };
+const TITLES = { dash: "Tableau de bord", vehicles: "Véhicules et valideurs", drivers: "Chauffeurs", lines: "Lignes", validations: "Paiements", recon: "Recettes & rapprochement", operators: "Opérateurs", cards: "Cartes Metala Pass" };
 const INTRO = {
   dash: "Ce que le transporteur n’avait jamais : <b>sa flotte, ses montées et ses recettes en temps réel</b>, sur un seul écran. Chaque passage de carte dans un bus apparaît ici en quelques secondes.",
   vehicles: "Position et état de chaque bus et de son valideur. En cas de vol ou d’incident, l’opérateur <b>gèle le terminal à distance</b> en un clic.",
   validations: "Toutes les montées, acceptées ou refusées, avec leur motif. Les données sont <b>anonymisées</b> : l’opérateur ne voit jamais l’identité des voyageurs.",
   recon: "Chaque franc est tracé : ce que le prestataire de paiement a encaissé, les titres émis, les trajets consommés et la part de chacun <b>doivent concorder au franc près</b>. Objectif du pilote : 0 écart non expliqué.",
-  cards: "Un Metala Pass perdu ou volé est <b>bloqué instantanément</b> sur tous les bus de tous les opérateurs.",
+  cards: "Un Metala Pass perdu ou volé est <b>bloqué instantanément</b> sur tous les véhicules de tous les opérateurs.",
+  drivers: "Chaque chauffeur prend son service sur Metala Scan avec son code PIN : sa recette et ses passagers sont suivis en direct.",
+  lines: "L’offre de service publiée aux voyageurs : tracé, arrêts, fréquence et horaires.",
+  operators: "Super administrateur : toutes les compagnies inscrites sur Metala, publiques, privées, artisanales ou taxis.",
 };
-const DEMO_USERS = { lagune: "fleet@lagune.demo", ebene: "fleet@ebene.demo", admin: "admin@metala.demo" };
+const DEMO_USERS = { lagune: "fleet@lagune.demo", ebene: "fleet@ebene.demo", bateau: "fleet@bateau.demo", taxi: "fleet@taxi.demo", admin: "admin@metala.demo" };
+const KIND = { public: "Entreprise publique", prive: "Compagnie privée", artisanal: "Transport artisanal", taxi: "Taxis" };
+const MODE = { bus: "Bus", navette: "Navette", bateau: "Bateau-bus", gbaka: "Gbaka", woro: "Woro-woro", taxi: "Taxi compteur" };
 
 async function boot() {
   S.network = await api("/api/network");
@@ -62,10 +67,11 @@ const scopeOp = () => S.pr.role === "platform_admin" ? $("#op-filter").value : S
 async function enter() {
   $("#login").classList.add("hidden");
   $("#app").classList.remove("hidden");
-  $("#who").innerHTML = `<strong>${esc(S.pr.name)}</strong><br>${S.pr.role === "platform_admin" ? "Administrateur Metala" : esc(opName(S.pr.operator_id))}`;
+  $("#who").innerHTML = `<strong>${S.pr.role === "platform_admin" ? "Super administrateur" : "Administrateur"}</strong><br>${S.pr.role === "platform_admin" ? "Metala · toutes compagnies" : esc(opName(S.pr.operator_id))}`;
   if (S.pr.role === "platform_admin") {
     $("#op-filter").classList.remove("hidden");
     $("#nav-cards").classList.remove("hidden");
+    $("#nav-operators").classList.remove("hidden");
     $("#op-filter").innerHTML = `<option value="">Tous les opérateurs</option>` + S.network.operators.map((o) => `<option value="${o.id}">${esc(o.name)}</option>`).join("");
     $("#op-filter").onchange = () => { rebuildMap(); refresh(); };
   }
@@ -111,6 +117,9 @@ async function refresh() {
     if (S.view === "validations") renderValidations(await api("/api/fleet/validations" + (q ? q + "&" : "?") + "limit=150", { token: S.token }));
     if (S.view === "recon") renderRecon(await api("/api/fleet/reconciliation" + q, { token: S.token }));
     if (S.view === "cards") renderCards(await api("/api/dev/inventory"));
+    if (S.view === "drivers") renderDrivers(await api("/api/fleet/drivers" + q, { token: S.token }));
+    if (S.view === "lines") renderLines(vehicles);
+    if (S.view === "operators") renderOperators(await api("/api/admin/operators", { token: S.token }));
     $("#updated").textContent = "Mis à jour " + new Date().toLocaleTimeString("fr-FR");
   } catch (e) {
     if (e.status === 401) { sessionStore.del("metala.fleet.token"); location.reload(); }
@@ -127,8 +136,8 @@ function feedItem(v, isNew) {
   const tags = (v.offline ? ` <span class="badge warn">hors ligne</span>` : "") + (v.source === "wallet" ? ` <span class="badge">porte-monnaie</span>` : "");
   const what = v.status === "accepted" ? (v.debited ? `Montée · ${fcfa(v.debited)}${tags}` : `Montée · forfait`)
     : v.status === "already_validated" ? "Double passage ignoré (aucun débit)" : esc(v.message.replace(/^Refusé — /, "Refus : "));
-  return `<div class="feed-item ${isNew ? "new" : ""}"><span class="feed-ico ${v.status}">${STATUS_ICON[v.status]}</span>${chip(l)}
-    <span>${what}<br><span class="small muted">bus ${esc(v.vehicle_id.replace("veh_", ""))} · carte ${esc(v.card_uid.slice(0, 4))}••••</span></span><span class="when">${new Date(v.at).toLocaleTimeString("fr-FR")}</span></div>`;
+  return `<div class="feed-item ${isNew ? "new" : ""}"><span class="feed-ico ${v.status}">${STATUS_ICON[v.status]}</span>${l ? chip(l) : `<span class="kind">Taxi</span>`}
+    <span>${what}<br><span class="small muted">véhicule ${esc(v.vehicle_id.replace("veh_", ""))} · ${v.channel === "phone" ? "QR téléphone" : `carte ${esc(v.card_uid.slice(0, 4))}••••`}</span></span><span class="when">${new Date(v.at).toLocaleTimeString("fr-FR")}</span></div>`;
 }
 
 function renderDash(d, vehicles, vals) {
@@ -137,7 +146,7 @@ function renderDash(d, vehicles, vals) {
   S.firstFeed = false;
   $("#v-dash").innerHTML = `
     <div class="kpis">
-      ${kpi("Bus en service", `${d.vehicles_fresh} / ${d.vehicles_total}`, "avec un GPS à jour")}
+      ${kpi("Véhicules en service", `${d.vehicles_fresh} / ${d.vehicles_total}`, "avec un GPS à jour")}
       ${kpi("Montées aujourd’hui", d.validations_today, `${d.rejections_today} refus (fraude, sans titre…)`, "kpi-val")}
       ${kpi("Ventes du jour", fcfa(d.sales_today), "titres payés par les voyageurs")}
       ${kpi("Recette transporteur", fcfa(d.revenue_today), "trajets effectués, part opérateur", "kpi-rev")}
@@ -161,33 +170,122 @@ function renderDash(d, vehicles, vals) {
     </div>`;
 }
 
+function vehicleForm() {
+  const f = $("#f-vehicles");
+  const op = scopeOp();
+  if (!op) { f.innerHTML = `<p class="muted small" style="margin:0">Choisissez un opérateur en haut à droite pour lui ajouter un véhicule.</p>`; f.dataset.op = ""; return; }
+  if (f.dataset.op === op) return;
+  f.dataset.op = op;
+  const lines = S.network.lines.filter((l) => l.operator_id === op);
+  f.innerHTML = `<h3>Ajouter un véhicule</h3><div class="form-row">
+    <div class="field"><label for="nv-plate">Immatriculation</label><input id="nv-plate" placeholder="4521 LG 01"></div>
+    <div class="field"><label for="nv-line">Service</label><select id="nv-line">${lines.map((l) => `<option value="${l.id}">Ligne ${esc(l.code)} · ${esc(l.name)}</option>`).join("")}<option value="">Taxi compteur (sans ligne)</option></select></div>
+    <div class="field" style="max-width:150px"><label for="nv-seats">Places réservables</label><input id="nv-seats" type="number" min="0" max="80" value="0"></div>
+    <button class="btn" id="nv-go">Ajouter</button></div>
+    <p class="small muted" style="margin:10px 0 0">Un valideur Metala Scan est créé et rattaché au véhicule.</p>`;
+  $("#nv-go").onclick = async () => {
+    const line = $("#nv-line").value;
+    try {
+      const v = await api("/api/fleet/vehicles", { method: "POST", token: S.token, body: { operator_id: op, plate: $("#nv-plate").value, line_id: line, mode: line ? "" : "taxi", reservable_seats: Number($("#nv-seats").value) || 0 } });
+      toast(`Véhicule ${v.plate} ajouté · valideur ${v.device_id}`, "success");
+      $("#nv-plate").value = "";
+      refresh();
+    } catch (e) { toast(e.message, "error"); }
+  };
+}
+
 function renderVehicles(vs) {
-  $("#v-vehicles").innerHTML = `<div class="card scroll-x"><table class="table">
-    <thead><tr><th>Bus</th><th>Ligne</th><th>Position GPS</th><th>Dernier signal</th><th>Vitesse</th><th>Valideur</th><th></th></tr></thead><tbody>
+  vehicleForm();
+  $("#t-vehicles").innerHTML = `<div class="card scroll-x"><table class="table">
+    <thead><tr><th>Véhicule</th><th>Service</th><th>Position GPS</th><th>Dernier signal</th><th>Valideur</th><th></th></tr></thead><tbody>
     ${vs.map((v) => `<tr>
-      <td><strong class="mono">${esc(v.plate)}</strong></td>
-      <td>${chip(lineById(v.line_id))}</td>
+      <td><strong class="mono">${esc(v.plate)}</strong>${S.pr.role === "platform_admin" ? `<div class="small muted">${esc(opName(v.operator_id))}</div>` : ""}</td>
+      <td>${v.line_id ? chip(lineById(v.line_id)) : `<span class="kind">${MODE.taxi}</span>`}</td>
       <td>${freshnessBadge(v.freshness, v.age_seconds)} ${simBadge(v.source)}</td>
       <td>${v.last_seen ? hhmm(v.last_seen) : "—"}</td>
-      <td>${v.freshness === "unknown" ? "—" : Math.round(v.speed_kmh) + " km/h"}</td>
-      <td>${v.device_frozen ? `<span class="badge ko">gelé</span>` : `<span class="badge ok">actif</span>`}</td>
-      <td><button class="btn small ${v.device_frozen ? "secondary" : "danger"}" data-dev="${v.device_id}" data-frozen="${v.device_frozen}">${v.device_frozen ? "Réactiver" : "Geler le valideur"}</button></td>
+      <td class="mono">${esc(v.device_id)} ${v.device_frozen ? `<span class="badge ko">gelé</span>` : `<span class="badge ok">actif</span>`}</td>
+      <td><button class="btn small ${v.device_frozen ? "secondary" : "danger"}" data-dev="${v.device_id}" data-frozen="${v.device_frozen}">${v.device_frozen ? "Réactiver" : "Geler"}</button></td>
     </tr>`).join("")}</tbody></table></div>`;
-  $("#v-vehicles").querySelectorAll("[data-dev]").forEach((b) => (b.onclick = async () => {
+  $("#t-vehicles").querySelectorAll("[data-dev]").forEach((b) => (b.onclick = async () => {
     try {
       await api(`/api/fleet/devices/${b.dataset.dev}/freeze`, { method: "POST", token: S.token, body: { frozen: b.dataset.frozen !== "true" } });
-      toast(b.dataset.frozen === "true" ? "Valideur réactivé" : "Valideur gelé : il ne peut plus valider", "success");
+      toast(b.dataset.frozen === "true" ? "Valideur réactivé" : "Valideur gelé : il ne peut plus encaisser", "success");
       refresh();
     } catch (e) { toast(e.message, "error"); }
   }));
 }
 
+function renderDrivers(ds) {
+  const f = $("#f-drivers");
+  const op = scopeOp();
+  if (!op) { f.innerHTML = `<p class="muted small" style="margin:0">Choisissez un opérateur pour lui ajouter un chauffeur.</p>`; f.dataset.op = ""; }
+  else if (f.dataset.op !== op) {
+    f.dataset.op = op;
+    f.innerHTML = `<h3>Ajouter un chauffeur</h3><div class="form-row">
+      <div class="field"><label for="nd-name">Nom</label><input id="nd-name" placeholder="Prénom Nom"></div>
+      <div class="field"><label for="nd-phone">Téléphone</label><input id="nd-phone" placeholder="07 00 00 00 00"></div>
+      <div class="field" style="max-width:130px"><label for="nd-pin">Code PIN</label><input id="nd-pin" inputmode="numeric" maxlength="4" placeholder="4 chiffres"></div>
+      <button class="btn" id="nd-go">Ajouter</button></div>`;
+    $("#nd-go").onclick = async () => {
+      try {
+        const d = await api("/api/fleet/drivers", { method: "POST", token: S.token, body: { operator_id: op, name: $("#nd-name").value, phone: $("#nd-phone").value, pin: $("#nd-pin").value } });
+        toast(`${d.name} peut se connecter sur Metala Scan`, "success");
+        ["#nd-name", "#nd-phone", "#nd-pin"].forEach((s) => ($(s).value = ""));
+        refresh();
+      } catch (e) { toast(e.message, "error"); }
+    };
+  }
+  $("#t-drivers").innerHTML = `<div class="card scroll-x"><table class="table">
+    <thead><tr><th>Chauffeur</th><th>Téléphone</th><th>Statut</th><th>Passagers</th><th>Recette du service</th></tr></thead><tbody>
+    ${ds.map((d) => `<tr><td><strong>${esc(d.name)}</strong>${S.pr.role === "platform_admin" ? `<div class="small muted">${esc(opName(d.operator_id))}</div>` : ""}</td><td class="mono">${esc(d.phone)}</td>
+      <td>${d.on_duty ? `<span class="badge ok">en service</span> <span class="small">${esc(d.plate)} · depuis ${hhmm(d.since)}</span>` : `<span class="badge">hors service</span>`}</td>
+      <td>${d.on_duty ? d.passengers : "—"}</td><td>${d.on_duty ? fcfa(d.revenue) : "—"}</td></tr>`).join("") || `<tr><td colspan="5" class="muted">Aucun chauffeur.</td></tr>`}
+    </tbody></table></div>`;
+}
+
+function renderLines(vehicles) {
+  const op = scopeOp();
+  const lines = S.network.lines.filter((l) => !op || l.operator_id === op);
+  $("#v-lines").innerHTML = lines.length ? `<div class="card scroll-x"><table class="table">
+    <thead><tr><th>Ligne</th><th>Mode</th><th>Arrêts</th><th>Fréquence</th><th>Service</th><th>Véhicules</th><th>Réservation</th></tr></thead><tbody>
+    ${lines.map((l) => `<tr><td>${chip(l)} ${esc(l.name)}</td><td>${MODE[l.mode]}</td><td>${l.stop_ids.length} · ${Math.round(l.stop_minutes[l.stop_minutes.length - 1])} min de bout en bout</td>
+      <td>toutes les ${l.headway_min} min</td><td>${l.first_dep}–${l.last_dep}</td><td>${vehicles.filter((v) => v.line_id === l.id).length}</td><td>${l.reservable ? `<span class="badge ok">oui</span>` : "—"}</td></tr>`).join("")}
+    </tbody></table></div>` : `<div class="card muted">Aucune ligne : cet opérateur exploite des taxis compteurs.</div>`;
+}
+
+function renderOperators(ops) {
+  const f = $("#f-operators");
+  if (!f.innerHTML) {
+    f.innerHTML = `<h3>Inscrire une compagnie</h3><div class="form-row">
+      <div class="field"><label for="no-name">Nom</label><input id="no-name" placeholder="Compagnie de transport"></div>
+      <div class="field" style="max-width:200px"><label for="no-kind">Catégorie</label><select id="no-kind">${Object.entries(KIND).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></div>
+      <div class="field"><label for="no-mail">E-mail de l’administrateur</label><input id="no-mail" placeholder="admin@compagnie.ci"></div>
+      <div class="field" style="max-width:180px"><label for="no-pw">Mot de passe</label><input id="no-pw" type="password" placeholder="8 caractères min."></div>
+      <button class="btn" id="no-go">Inscrire</button></div>`;
+    $("#no-go").onclick = async () => {
+      try {
+        const o = await api("/api/admin/operators", { method: "POST", token: S.token, body: { name: $("#no-name").value, kind: $("#no-kind").value, admin_email: $("#no-mail").value, password: $("#no-pw").value } });
+        toast(`${o.name} inscrite · compte ${o.admin}`, "success");
+        S.network = await api("/api/network");
+        ["#no-name", "#no-mail", "#no-pw"].forEach((s) => ($(s).value = ""));
+        $("#op-filter").innerHTML = `<option value="">Tous les opérateurs</option>` + S.network.operators.map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join("");
+        refresh();
+      } catch (e) { toast(e.message, "error"); }
+    };
+  }
+  $("#t-operators").innerHTML = `<div class="card scroll-x"><table class="table">
+    <thead><tr><th>Compagnie</th><th>Catégorie</th><th>Lignes</th><th>Véhicules</th><th>Chauffeurs</th><th>Administrateur</th></tr></thead><tbody>
+    ${ops.map((o) => `<tr><td><span class="op-dot" style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${o.color};margin-right:6px"></span><strong>${esc(o.name)}</strong></td>
+      <td><span class="kind">${KIND[o.kind] || o.kind}</span></td><td>${o.lines}</td><td>${o.vehicles}</td><td>${o.drivers}</td><td class="mono small">${esc(o.admin || "—")}</td></tr>`).join("")}
+    </tbody></table></div>`;
+}
+
 const STATUS = { accepted: `<span class="badge ok">Validée</span>`, already_validated: `<span class="badge warn">Double passage</span>`, rejected: `<span class="badge ko">Refusée</span>` };
 function renderValidations(vals) {
   $("#v-validations").innerHTML = `<div class="card scroll-x"><table class="table">
-    <thead><tr><th>Heure</th><th>Ligne</th><th>Bus</th><th>Carte</th><th>Résultat</th><th>Motif</th><th>Recette</th></tr></thead><tbody>
+    <thead><tr><th>Heure</th><th>Ligne</th><th>Véhicule</th><th>Carte</th><th>Résultat</th><th>Motif</th><th>Recette</th></tr></thead><tbody>
     ${vals.map((v) => `<tr><td>${new Date(v.at).toLocaleTimeString("fr-FR")}</td><td>${chip(lineById(v.line_id))}</td><td class="mono">${esc(v.vehicle_id.replace("veh_", ""))}</td>
-      <td class="mono">${esc(v.card_uid.slice(0, 4))}••••${esc(v.card_uid.slice(-2))}</td><td>${STATUS[v.status]}</td><td class="small">${esc(v.message)}${v.offline ? ` <span class="badge warn">hors ligne</span>` : ""}</td>
+      <td class="mono">${v.channel === "phone" ? "QR · " : ""}${esc(v.card_uid.slice(0, 4))}••••${esc(v.card_uid.slice(-2))}</td><td>${STATUS[v.status]}</td><td class="small">${esc(v.message)}${v.offline ? ` <span class="badge warn">hors ligne</span>` : ""}</td>
       <td>${v.debited ? fcfa(v.debited) : "—"}</td></tr>`).join("") || `<tr><td colspan="7" class="muted">Aucune montée.</td></tr>`}
     </tbody></table></div>`;
 }

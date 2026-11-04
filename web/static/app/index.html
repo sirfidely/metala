@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="/shared/metala.css">
 <link rel="stylesheet" href="app.css">
 <script src="/vendor/maplibre-gl-4.7.1/maplibre-gl.js"></script>
+<script src="/vendor/qrcode-generator-1.4.4/qrcode.js"></script>
 </head>
 <body>
 <div class="phone">
@@ -44,17 +45,12 @@
       <span class="icon-btn" aria-hidden="true"></span>
     </header>
     <div id="view" class="view"></div>
-    <div id="mapview" class="mapview hidden">
-      <div id="map"></div>
-      <div class="map-legend"><span><i class="lg fresh"></i>En direct</span><span><i class="lg delayed"></i>Retardé</span><span><i class="lg unknown"></i>Inconnu</span></div>
-      <div id="sheet" class="sheet hidden"></div>
-    </div>
     <nav class="tabbar">
-      <button data-tab="home" aria-label="Accueil"></button>
-      <button data-tab="lines" aria-label="Lignes et arrêts"></button>
-      <button data-tab="pass" class="fab" aria-label="Mon Pass"></button>
-      <button data-tab="map" aria-label="Carte"></button>
-      <button data-tab="profile" aria-label="Profil"></button>
+      <button data-tab="lines"><span class="ti"></span><small>Lignes</small></button>
+      <button data-tab="trip"><span class="ti"></span><small>Trajet</small></button>
+      <button data-tab="pass" class="fab" aria-label="Payer · Mon Pass"></button>
+      <button data-tab="budget"><span class="ti"></span><small>Budget</small></button>
+      <button data-tab="profile"><span class="ti"></span><small>Profil</small></button>
     </nav>
   </section>
 

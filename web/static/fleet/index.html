@@ -51,6 +51,12 @@
   .feed-ico.accepted { background: #dcfce7; color: #166534; } .feed-ico.already_validated { background: #fef3c7; color: #92400e; } .feed-ico.rejected { background: #fee2e2; color: #991b1b; }
   .card.hl { animation: hl 2s ease-out; }
   @keyframes hl { 0% { box-shadow: 0 0 0 4px #10b981; } 100% { box-shadow: var(--shadow); } }
+  .form-card { margin-bottom: 16px; }
+  .form-card h3 { margin: 0 0 12px; font-size: 15px; }
+  .form-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+  .form-row .field { margin: 0; flex: 1; min-width: 150px; }
+  .form-row .btn { height: 44px; }
+  .kind { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; padding: 3px 8px; border-radius: 6px; background: #eef2f1; color: #374151; }
   .tg-explain { border: 1px solid #d1d5db; background: #fff; border-radius: 9px; padding: 6px 10px; font-size: 13px; }
   body.embed .demo-banner { display: none; }
   body.embed main { padding: 14px; }
@@ -84,9 +90,12 @@
     <div class="logo">METALA<small>FLEET</small></div>
     <nav id="nav">
       <button data-v="dash" class="active">Tableau de bord</button>
-      <button data-v="vehicles">Flotte & terminaux</button>
-      <button data-v="validations">Journal des montées</button>
+      <button data-v="vehicles">Véhicules</button>
+      <button data-v="drivers">Chauffeurs</button>
+      <button data-v="lines">Lignes</button>
+      <button data-v="validations">Paiements</button>
       <button data-v="recon">Recettes & rapprochement</button>
+      <button data-v="operators" id="nav-operators" class="hidden">Opérateurs</button>
       <button data-v="cards" id="nav-cards" class="hidden">Cartes Metala Pass</button>
     </nav>
     <div class="who"><div id="who"></div><button class="btn ghost small" id="logout" style="color:#6ee7b7;padding-left:0">Se déconnecter</button></div>
@@ -104,7 +113,10 @@
     <div class="intro" id="intro"></div>
     <div id="v-dash"></div>
     <div id="v-map-wrap" class="card" style="padding:8px;margin-top:16px"><div id="fleet-map"></div></div>
-    <div id="v-vehicles" class="hidden"></div>
+    <div id="v-vehicles" class="hidden"><div class="card form-card" id="f-vehicles"></div><div id="t-vehicles"></div></div>
+    <div id="v-drivers" class="hidden"><div class="card form-card" id="f-drivers"></div><div id="t-drivers"></div></div>
+    <div id="v-lines" class="hidden"></div>
+    <div id="v-operators" class="hidden"><div class="card form-card" id="f-operators"></div><div id="t-operators"></div></div>
     <div id="v-validations" class="hidden"></div>
     <div id="v-recon" class="hidden"></div>
     <div id="v-cards" class="hidden"></div>

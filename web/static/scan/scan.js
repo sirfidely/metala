@@ -1,107 +1,174 @@
-import { api, esc, sessionStore, store, toast, params, embedded, fcfa } from "/shared/metala.js";
+import { api, esc, sessionStore, store, toast, params, embedded, fcfa, hhmm } from "/shared/metala.js";
 import { ic } from "/shared/icons.js";
+
+// Metala Scan : l'application du conducteur. Prise de service, encaissement
+// (carte NFC ou QR du téléphone), recette du service, mode hors ligne.
 
 const $ = (s) => document.querySelector(s);
 const S = {
-  token: sessionStore.get("metala.scan.token"), device: null, selected: null, lastTap: null, busy: false,
-  online: true, config: null, queue: [], recent: [],
+  token: sessionStore.get("metala.scan.token"), inv: null, driver: null, vehicle: null, pin: "",
+  shift: null, config: null, online: true, queue: [], recent: [], busy: false, amount: "",
+  medium: null,
 };
 if (embedded) { document.body.classList.add("embed"); $("#banner").classList.add("hidden"); }
-$("#change").innerHTML = ic("refresh", 18);
-$("#reader").innerHTML = ic("nfc", 64);
+const MODE_IC = { bus: "bus", navette: "van", bateau: "boat", gbaka: "van", woro: "taxi", taxi: "taxi" };
+const OP_COLOR = { op_lagune: "#0E7C66", op_ebene: "#C2410C", op_bateau: "#2563EB", op_gbaka: "#CA8A04", op_woro: "#9333EA", op_taxi: "#E11D48" };
 
-// Personnages de démonstration et cas de fraude.
-const CARDS = [
-  { key: "awa", uid: "04A1B2C3D4E5F6", name: "Awa", hint: "carnet + porte-monnaie" },
-  { key: "koffi", uid: "04B7C8D9E0F1A2", name: "Koffi", hint: "forfait Ébène" },
-  { key: "yao", uid: "04C3D4E5F6A7B8", name: "Yao", hint: "aucun titre" },
-  { key: "clone", uid: "04A1B2C3D4E5F6", name: "Clone", hint: "copie de la carte d’Awa", special: "clone" },
+// Ce que les voyageurs présentent (simulation : cartes et téléphones virtuels).
+const MEDIA = [
+  { key: "awa", kind: "card", uid: "04A1B2C3D4E5F6", name: "Carte d’Awa" },
+  { key: "awa-phone", kind: "phone", phone: "0700000001", name: "Téléphone d’Awa" },
+  { key: "koffi", kind: "card", uid: "04B7C8D9E0F1A2", name: "Carte de Koffi" },
+  { key: "yao", kind: "card", uid: "04C3D4E5F6A7B8", name: "Carte de Yao" },
+  { key: "clone", kind: "card", uid: "04A1B2C3D4E5F6", name: "Carte copiée", special: "clone" },
 ];
+const isTaxi = () => S.vehicle?.mode === "taxi";
+const qKey = () => "metala.scan.queue." + S.vehicle.vehicle_id;
+const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now());
 
-// File des transactions hors ligne : conservée sur le terminal.
-const qKey = () => "metala.scan.queue." + S.device.id;
-const loadQueue = () => { try { S.queue = JSON.parse(store.get(qKey()) || "[]"); } catch { S.queue = []; } };
-const saveQueue = () => store.set(qKey(), JSON.stringify(S.queue));
-
-async function inventory() {
-  try { return await api("/api/dev/inventory"); }
-  catch { toast("Simulateur indisponible", "error"); return { devices: [], cards: [] }; }
-}
-
+// ---------- Connexion du conducteur ----------
 async function boot() {
-  S.inv = await inventory();
-  const wanted = params.get("device") || sessionStore.get("metala.scan.device");
-  const d = S.inv.devices.find((x) => x.id === wanted);
-  if (d) {
-    if (!params.get("device") && S.token && sessionStore.get("metala.scan.device") === d.id) { S.device = d; return start(); }
-    return enroll(d);
+  try { S.inv = await api("/api/dev/inventory"); } catch { S.inv = { drivers: [], driver_pin: "" }; }
+  const drv = params.get("driver"), veh = params.get("vehicle");
+  if (drv && veh) {
+    const d = S.inv.drivers.find((x) => x.id === drv);
+    const v = d?.vehicles.find((x) => x.vehicle_id === veh);
+    if (d && v) { S.driver = d; S.vehicle = v; S.pin = S.inv.driver_pin; return login(); }
   }
-  showSetup();
+  if (S.token) {
+    try {
+      S.shift = await api("/api/scan/shift", { token: S.token });
+      S.driver = S.shift.driver;
+      S.vehicle = { vehicle_id: S.shift.vehicle.id, plate: S.shift.vehicle.plate, mode: S.shift.vehicle.mode, line_code: S.shift.line_code, operator_id: S.shift.vehicle.operator_id };
+      return start();
+    } catch { sessionStore.del("metala.scan.token"); }
+  }
+  stepDriver();
 }
 
-function showSetup() {
-  $("#setup").classList.remove("hidden");
-  $("#run").classList.add("hidden");
-  $("#devices").innerHTML = S.inv.devices.map((d) => `
-    <button class="dev-btn" data-id="${d.id}">
-      <span class="line-chip" style="background:${d.operator_id === "op_lagune" ? "#0E7C66" : "#C2410C"}">${esc(d.line_code)}</span>
-      <span><strong>${esc(d.plate)}</strong><br><small>${d.operator_id === "op_lagune" ? "Lagune Express" : "Navettes Ébène"}${d.frozen ? " · gelé" : ""}</small></span>
-    </button>`).join("");
-  $("#devices").querySelectorAll("[data-id]").forEach((b) => (b.onclick = () => enroll(S.inv.devices.find((d) => d.id === b.dataset.id))));
+function stepDriver() {
+  $("#login-step").innerHTML = `<h2>Bonjour, qui conduit ?</h2><p class="muted" style="margin:0 0 12px">Conducteurs de démonstration</p>
+    <div class="list">${S.inv.drivers.map((d, i) => `<button class="opt" data-i="${i}"><span class="av" style="background:${OP_COLOR[d.operator_id] || "#163742"}">${esc(d.name.split(" ").map((x) => x[0]).join(""))}</span>
+      <span><b>${esc(d.name)}</b><small>${esc(opName(d.operator_id))}</small></span></button>`).join("")}</div>`;
+  document.querySelectorAll("[data-i]").forEach((b) => (b.onclick = () => { S.driver = S.inv.drivers[+b.dataset.i]; stepVehicle(); }));
+}
+const opName = (id) => ({ op_lagune: "Lagune Express", op_ebene: "Navettes Ébène", op_bateau: "Bateaux de la Lagune", op_gbaka: "Union des gbaka", op_woro: "Woro-woro Riviera", op_taxi: "Taxis Kouassi & Fils" }[id] || "");
+
+function stepVehicle() {
+  const vs = S.driver.vehicles;
+  $("#login-step").innerHTML = `<h2>Votre véhicule</h2><p class="muted" style="margin:0 0 12px">${esc(S.driver.name)} · ${esc(opName(S.driver.operator_id))}</p>
+    <div class="list">${vs.map((v, i) => `<button class="opt" data-i="${i}"><span class="av" style="background:${OP_COLOR[v.operator_id]}">${ic(MODE_IC[v.mode] || "bus", 20)}</span>
+      <span><b>${esc(v.plate)}</b><small>${v.line_code ? "Ligne " + esc(v.line_code) : "Taxi compteur"}${v.frozen ? " · valideur gelé" : ""}</small></span></button>`).join("")}</div>
+    <button class="link" id="back">‹ Changer de conducteur</button>`;
+  document.querySelectorAll("[data-i]").forEach((b) => (b.onclick = () => { S.vehicle = vs[+b.dataset.i]; stepPin(); }));
+  $("#back").onclick = stepDriver;
 }
 
-async function enroll(d) {
+function stepPin() {
+  S.pin = "";
+  const draw = () => {
+    $("#login-step").innerHTML = `<h2>Code PIN</h2><p class="muted" style="margin:0">${esc(S.driver.name)} · ${esc(S.vehicle.plate)}</p>
+      <div class="pin-dots">${[0, 1, 2, 3].map((i) => `<i class="${i < S.pin.length ? "on" : ""}"></i>`).join("")}</div>
+      <div class="keypad">${[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => `<button data-k="${n}">${n}</button>`).join("")}<button data-k="del">${ic("back", 22)}</button><button data-k="0">0</button><button class="ok" data-k="ok">Valider</button></div>
+      <p class="muted" style="text-align:center;font-size:12.5px">Démo : ${esc(S.inv.driver_pin)}</p><button class="link" id="back">‹ Changer de véhicule</button>`;
+    document.querySelectorAll("[data-k]").forEach((b) => (b.onclick = () => {
+      const k = b.dataset.k;
+      if (k === "del") S.pin = S.pin.slice(0, -1);
+      else if (k === "ok") return login();
+      else if (S.pin.length < 4) S.pin += k;
+      draw();
+      if (S.pin.length === 4) login();
+    }));
+    $("#back").onclick = stepVehicle;
+  };
+  draw();
+}
+
+async function login() {
   try {
-    const r = await api("/api/auth/device", { method: "POST", body: { device_id: d.id, secret: d.secret } });
+    const r = await api("/api/auth/driver", { method: "POST", body: { phone: S.driver.phone, pin: S.pin, vehicle_id: S.vehicle.vehicle_id } });
     S.token = r.token;
-    S.device = d;
     sessionStore.set("metala.scan.token", r.token);
-    sessionStore.set("metala.scan.device", d.id);
     start();
-  } catch (e) { toast(e.message, "error"); }
+  } catch (e) { toast(e.message, "error"); S.pin = ""; if (!params.get("driver")) stepPin(); }
 }
 
+// ---------- Service ----------
 async function start() {
-  $("#setup").classList.add("hidden");
+  $("#login").classList.add("hidden");
   $("#run").classList.remove("hidden");
-  $("#t-chip").textContent = S.device.line_code;
-  $("#t-chip").style.background = S.device.operator_id === "op_lagune" ? "#0E7C66" : "#C2410C";
-  $("#t-veh").textContent = "Bus " + S.device.plate;
-  $("#t-op").textContent = S.device.operator_id === "op_lagune" ? "Lagune Express" : "Navettes Ébène";
-  S.selected = S.selected || CARDS[0];
-  loadQueue();
-  renderCards();
+  try { S.queue = JSON.parse(store.get(qKey()) || "[]"); } catch { S.queue = []; }
+  const color = OP_COLOR[S.vehicle.operator_id] || "#163742";
+  $("#t-chip").style.background = color;
+  $("#t-chip").innerHTML = `${ic(MODE_IC[S.vehicle.mode] || "bus", 18)}${esc(S.vehicle.line_code || "")}`;
+  $("#t-veh").textContent = S.vehicle.plate;
+  $("#t-driver").textContent = S.driver.name;
+  S.medium = MEDIA[0];
+  renderMedia();
   await refreshConfig();
   setOnline(true);
+  refreshShift();
+  clearInterval(S.poll);
+  S.poll = setInterval(() => { refreshShift(); sync(); }, 5000);
 }
 
-// Configuration téléchargée en ligne : tarif et liste noire, pour décider hors ligne.
 async function refreshConfig() {
   try {
     S.config = await api("/api/scan/config", { token: S.token, timeout: 2500 });
     store.set("metala.scan.config", JSON.stringify(S.config));
-  } catch {
-    try { S.config = JSON.parse(store.get("metala.scan.config")); } catch {}
+  } catch { try { S.config = JSON.parse(store.get("metala.scan.config")); } catch {} }
+  renderZone();
+}
+
+async function refreshShift() {
+  if (!S.online) return;
+  try { S.shift = await api("/api/scan/shift", { token: S.token, timeout: 2500 }); } catch (e) { if (e.status === 401 || e.status === 403) return logout(); return; }
+  const pending = S.queue.reduce((a, t) => a + t.amount, 0);
+  $("#s-rev").textContent = fcfa(S.shift.revenue + pending);
+  $("#s-pax").textContent = S.shift.passengers + S.queue.length;
+  $("#recent").innerHTML = S.shift.recent.length ? S.shift.recent.slice(0, 5).map((v) => `
+    <div class="tx"><span class="s ${v.status}">${ic(v.status === "accepted" ? "check" : v.status === "rejected" ? "x" : "refresh", 14)}</span>
+      <div class="grow">${v.status === "accepted" ? fcfa(v.debited) + (v.source === "wallet" ? " · porte-monnaie" : v.debited ? " · titre" : " · forfait") : esc(v.message.replace("Refusé — ", ""))}${v.channel === "phone" ? " · QR" : ""}${v.offline ? " · hors ligne" : ""}</div>
+      <span class="when">${hhmm(v.at)}</span></div>`).join("") : `<p class="muted" style="margin:4px 0;font-size:13px">Aucune transaction</p>`;
+}
+
+function renderMedia() {
+  $("#media").innerHTML = MEDIA.map((m) => `<button class="med ${m === S.medium ? "sel" : ""} ${m.special ? "bad" : ""}" data-k="${m.key}">${ic(m.kind === "phone" ? "qr" : m.special ? "x" : "card", 16)}${esc(m.name)}</button>`).join("");
+  $("#media").querySelectorAll("[data-k]").forEach((b) => (b.onclick = () => { S.medium = MEDIA.find((m) => m.key === b.dataset.k); renderMedia(); }));
+}
+
+function renderZone() {
+  const z = $("#zone");
+  const keepResult = $("#result") && !$("#result").classList.contains("hidden") ? $("#result").outerHTML : `<div id="result" class="result hidden"></div>`;
+  if (isTaxi()) {
+    const amt = Number(S.amount || 0);
+    z.innerHTML = `<div class="fare">Montant du compteur</div><div class="amount">${new Intl.NumberFormat("fr-FR").format(amt)} <small>FCFA</small></div>
+      <div class="taxi-pad"><div class="keypad">${[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => `<button data-k="${n}">${n}</button>`).join("")}<button data-k="del">${ic("back", 20)}</button><button data-k="0">0</button><button class="ok" data-k="ok" ${amt ? "" : "disabled"}>Encaisser</button></div></div>${keepResult}`;
+    z.querySelectorAll("[data-k]").forEach((b) => (b.onclick = () => {
+      const k = b.dataset.k;
+      if (k === "del") S.amount = S.amount.slice(0, -1);
+      else if (k === "ok") return tap();
+      else if (S.amount.length < 5) S.amount += k;
+      renderZone();
+    }));
+  } else {
+    z.innerHTML = `<div class="fare">Tarif <b>${S.config ? fcfa(S.config.fare) : "—"}</b> · titres acceptés</div>
+      <div class="reader" id="reader" role="button" aria-label="Encaisser">${ic("nfc", 60)}</div>
+      <div class="hint">Carte ou QR du voyageur</div>${keepResult}`;
+    $("#reader").onclick = () => tap();
   }
-  $("#p-fare").innerHTML = `${ic("wallet", 14)}${S.config ? fcfa(S.config.fare) : "—"}`;
 }
 
-function renderPills() {
-  $("#p-net").className = "pill " + (S.online ? "on" : "off");
-  $("#p-net").innerHTML = S.online ? `${ic("wifi", 14)}En ligne` : `${ic("wifioff", 14)}Hors ligne`;
-  $("#p-queue").classList.toggle("hidden", !S.queue.length);
-  $("#p-queue").innerHTML = `${ic("refresh", 14)}${S.queue.length} à synchroniser`;
-  $("#net-ic").innerHTML = ic(S.online ? "wifi" : "wifioff");
-  $("#net-label").textContent = S.online ? "Réseau 4G" : "Réseau coupé";
-  $("#net-tg").classList.toggle("off", !S.online);
+function renderNet() {
+  const n = $("#net");
+  n.className = "net" + (S.online ? "" : " off");
+  n.innerHTML = S.online ? `${ic("wifi", 15)}En ligne` : `${ic("wifioff", 15)}Hors ligne`;
   $("#term").classList.toggle("offline", !S.online);
+  const q = $("#queue");
+  q.classList.toggle("hidden", !S.queue.length);
+  q.innerHTML = `${ic("refresh", 15)}${S.queue.length} paiement${S.queue.length > 1 ? "s" : ""} hors ligne à transmettre`;
 }
-
-async function setOnline(on) {
-  S.online = on;
-  renderPills();
-  if (on) { await refreshConfig(); await sync(); }
-}
+async function setOnline(on) { S.online = on; renderNet(); if (on) { await refreshConfig(); await sync(); refreshShift(); } }
 $("#net").onclick = () => setOnline(!S.online);
 
 async function sync() {
@@ -109,79 +176,68 @@ async function sync() {
   try {
     const r = await api("/api/scan/offline-sync", { method: "POST", token: S.token, body: { txs: S.queue } });
     S.queue = [];
-    saveQueue();
-    renderPills();
-    if (r.synced) toast(`${r.synced} passage${r.synced > 1 ? "s" : ""} hors ligne synchronisé${r.synced > 1 ? "s" : ""}`, "success");
+    store.set(qKey(), "[]");
+    renderNet();
+    refreshShift();
+    if (r.synced) toast(`${r.synced} paiement${r.synced > 1 ? "s" : ""} hors ligne transmis`, "success");
     return r;
   } catch { return null; }
 }
-setInterval(sync, 10000);
 
-function renderCards() {
-  $("#cards").innerHTML = CARDS.map((c) => `
-    <button class="vcard ${c === S.selected ? "sel" : ""} ${c.special ? "bad" : ""}" data-k="${c.key}">
-      <span class="av">${c.special ? ic("x", 16) : esc(c.name[0])}</span><span>${esc(c.name)}<small>${esc(c.hint)}</small></span></button>`).join("");
-  $("#cards").querySelectorAll("[data-k]").forEach((b) => (b.onclick = () => select(b.dataset.k)));
-}
-function select(key) { S.selected = CARDS.find((c) => c.key === key) || CARDS[0]; renderCards(); }
-$("#change").onclick = async () => { S.inv = await inventory(); showSetup(); };
-
-const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now());
-
-async function tap() {
+// ---------- Encaissement ----------
+async function tap(key) {
+  if (key) { S.medium = MEDIA.find((m) => m.key === key) || S.medium; renderMedia(); }
   if (S.busy) return null;
+  if (isTaxi() && !Number(S.amount)) { toast("Saisissez le montant du compteur", "error"); return null; }
   S.busy = true;
-  const card = S.selected;
-  const t0 = performance.now();
+  const m = S.medium;
   pending();
-  try {
-    return S.online ? await tapOnline(card, t0) : await tapOffline(card, t0);
-  } finally { S.busy = false; }
+  try { return S.online ? await tapOnline(m) : await tapOffline(m); }
+  finally { S.busy = false; if (isTaxi()) { S.amount = ""; } }
 }
 
-// En ligne : challenge serveur → réponse de la puce → décision serveur.
-async function tapOnline(card, t0) {
+async function tapOnline(m) {
+  const amount = isTaxi() ? Number(S.amount) : undefined;
   try {
-    let req;
-    if ($("#retry").checked && S.lastTap) req = S.lastTap;
-    else {
+    const req = { tap_id: uuid(), amount };
+    if (m.kind === "phone") {
+      req.pay_token = (await api(`/api/dev/travelers/${m.phone}/pay-token`, { method: "POST" })).token; // lecture du QR par la caméra
+    } else {
       const { challenge } = await api("/api/scan/challenge", { method: "POST", token: S.token, timeout: 2500 });
       let proof = "";
-      if (card.special !== "clone") {
-        try { proof = (await api(`/api/dev/cards/${card.uid}/respond`, { method: "POST", body: { challenge } })).proof; } catch { proof = "00"; }
-      }
-      req = { tap_id: uuid(), card_uid: card.uid, challenge, proof };
+      if (!m.special) { try { proof = (await api(`/api/dev/cards/${m.uid}/respond`, { method: "POST", body: { challenge } })).proof; } catch { proof = "00"; } }
+      Object.assign(req, { card_uid: m.uid, challenge, proof });
     }
-    S.lastTap = req;
     const v = await api("/api/scan/validate", { method: "POST", token: S.token, body: req, timeout: 2500 });
     const kind = v.status === "already_validated" ? "already" : v.status;
-    return show({ kind, message: v.message, reason: v.reason || (kind === "already" ? "passback" : "ok"), source: v.source, debited: v.debited, id: v.id, mode: "online" }, t0, card);
+    return show({ kind, message: v.message, source: v.source, channel: v.channel, debited: v.debited }, m);
   } catch (e) {
-    if (e.status === 401 || e.status === 403) return show({ kind: "rejected", message: "Terminal bloqué", reason: "frozen", mode: "online" }, t0, card);
-    // Le serveur ne répond pas : on bascule en mode hors ligne.
+    if (e.status === 401 || e.status === 403) return show({ kind: "rejected", message: "Valideur bloqué" }, m);
+    if (e.status === 400) return show({ kind: "rejected", message: e.message }, m);
     setOnline(false);
-    return tapOffline(card, t0);
+    return tapOffline(m);
   }
 }
 
-// Hors ligne : le valideur décide seul, avec le porte-monnaie de la puce.
-async function tapOffline(card, t0) {
-  await new Promise((r) => setTimeout(r, 350));
-  const res = (kind, message, reason, extra = {}) => show({ kind, message, reason, mode: "offline", ...extra }, t0, card);
-  if (card.special === "clone") return res("rejected", "Refusé — carte non authentique", "offline_auth");
-  if (S.config?.blacklist?.includes(card.uid)) return res("rejected", "Refusé — carte bloquée", "offline_blacklist");
-  const recent = S.recent.find((r) => r.uid === card.uid && Date.now() - r.at < 60000);
-  if (recent) return res("already", "Déjà validé — aucun débit", "offline_passback");
-  if (!S.config) return res("rejected", "Refusé — valideur non configuré", "offline_auth");
+// Hors ligne : décision locale, débit du porte-monnaie de la carte.
+async function tapOffline(m) {
+  await new Promise((r) => setTimeout(r, 300));
+  if (m.kind === "phone") return show({ kind: "rejected", message: "QR indisponible hors ligne · utilisez la carte", offline: true }, m);
+  if (m.special) return show({ kind: "rejected", message: "Refusé — carte non authentique", offline: true }, m);
+  if (S.config?.blacklist?.includes(m.uid)) return show({ kind: "rejected", message: "Refusé — carte bloquée", offline: true }, m);
+  if (!isTaxi() && S.recent.find((r) => r.uid === m.uid && Date.now() - r.at < 60000)) return show({ kind: "already", message: "Déjà validé — aucun débit", offline: true }, m);
+  const amount = isTaxi() ? Number(S.amount) : S.config?.fare;
   try {
-    const tx = await api(`/api/dev/cards/${card.uid}/offline-debit`, { method: "POST", body: { device_id: S.device.id, amount: S.config.fare } });
+    const tx = await api(`/api/dev/cards/${m.uid}/offline-debit`, { method: "POST", body: { device_id: "dev_" + S.vehicle.vehicle_id.slice(4), amount } });
     S.queue.push(tx);
-    saveQueue();
-    S.recent.push({ uid: card.uid, at: Date.now() });
-    renderPills();
-    return res("accepted", `Validé hors ligne — solde ${fcfa(tx.balance)}`, "offline_ok", { debited: tx.amount, source: "wallet" });
+    store.set(qKey(), JSON.stringify(S.queue));
+    S.recent.push({ uid: m.uid, at: Date.now() });
+    renderNet();
+    $("#s-pax").textContent = (S.shift?.passengers || 0) + S.queue.length;
+    $("#s-rev").textContent = fcfa((S.shift?.revenue || 0) + S.queue.reduce((a, t) => a + t.amount, 0));
+    return show({ kind: "accepted", message: `Payé hors ligne — solde ${fcfa(tx.balance)}`, source: "wallet", offline: true, debited: tx.amount }, m);
   } catch (e) {
-    return res("rejected", e.status === 409 ? "Refusé — solde insuffisant" : "Refusé", "offline_balance");
+    return show({ kind: "rejected", message: e.status === 409 ? "Refusé — solde insuffisant" : "Refusé", offline: true }, m);
   }
 }
 
@@ -192,58 +248,55 @@ function pending() {
   el.innerHTML = `<div class="big" style="background:none">${ic("nfc", 54)}</div><div class="msg" style="font-size:17px;color:var(--mu)">Lecture…</div>`;
 }
 
-const ONLINE_STEPS = [["net", "Serveur Metala"], ["auth", "Carte authentique"], ["active", "Carte active"], ["once", "Pas de double passage"], ["title", "Titre ou solde"], ["debit", "Débit enregistré"]];
-const OFFLINE_STEPS = [["auth", "Carte authentique (SAM)"], ["active", "Hors liste noire"], ["once", "Pas de double passage"], ["title", "Solde sur la carte"], ["debit", "Débit signé · en attente"]];
-const FAIL_AT = {
-  frozen: "net", uid_only: "auth", bad_challenge: "auth", replay: "auth", challenge_expired: "auth", unknown_card: "auth", bad_proof: "auth",
-  card_revoked: "active", passback: "once", no_title: "title", title_expired: "title", insufficient_balance: "title",
-  offline_auth: "auth", offline_blacklist: "active", offline_passback: "once", offline_balance: "title",
-};
-
-function show(r, t0, card) {
-  const ms = Math.round(performance.now() - t0);
+function show(r, m) {
   const el = $("#result");
   el.className = "result " + r.kind;
-  const icon = { accepted: "check", already: "refresh", rejected: "x" }[r.kind];
   const tags = [];
-  if (r.mode === "offline") tags.push("hors ligne");
+  if (r.offline) tags.push("hors ligne");
+  if (r.channel === "phone" || m.kind === "phone") tags.push("QR téléphone");
   if (r.source === "wallet") tags.push("porte-monnaie");
-  el.innerHTML = `<div class="big">${ic(icon, 48)}</div><div class="msg">${esc(r.message)}</div>
-    <div class="det">${esc(card.name)}${tags.map((t) => `<span class="tag">${t}</span>`).join("")}</div>
-    <div class="lat">${ms} ms</div>`;
+  el.innerHTML = `<div class="big">${ic({ accepted: "check", already: "refresh", rejected: "x" }[r.kind], 48)}</div>
+    <div class="msg">${esc(r.message)}</div><div class="det">${r.debited ? `<b>${fcfa(r.debited)}</b>` : ""}${tags.map((t) => `<span class="tag">${t}</span>`).join("")}</div>`;
   clearTimeout(S.hide);
-  S.hide = setTimeout(() => el.classList.add("hidden"), embedded ? 6000 : 3500);
-  el.onclick = () => el.classList.add("hidden");
-
-  const steps = r.mode === "offline" ? OFFLINE_STEPS : ONLINE_STEPS;
-  const failAt = r.kind === "accepted" ? null : FAIL_AT[r.reason] || "auth";
-  let reached = true;
-  $("#checks").innerHTML = steps.map(([k, label]) => {
-    let st = "skip";
-    if (reached) st = k === failAt ? (r.kind === "already" ? "warn" : "ko") : "ok";
-    if (k === failAt) reached = false;
-    const sym = st === "ok" ? "check" : st === "ko" ? "x" : st === "warn" ? "refresh" : "";
-    return `<div class="chk ${st}"><span class="s">${sym ? ic(sym, 13) : ""}</span><span>${esc(label)}</span></div>`;
-  }).join("");
-  $("#explain-wrap").classList.remove("hidden");
-
-  const line = document.createElement("div");
-  line.innerHTML = `<span>${new Date().toLocaleTimeString("fr-FR")}</span><span class="s-${r.kind}">${esc(r.message)}</span>`;
-  $("#log").prepend(line);
+  S.hide = setTimeout(() => { el.classList.add("hidden"); if (isTaxi()) renderZone(); }, embedded ? 6000 : 3000);
+  el.onclick = () => { el.classList.add("hidden"); if (isTaxi()) renderZone(); };
   if (navigator.vibrate) navigator.vibrate(r.kind === "accepted" ? 80 : [60, 60, 60]);
+  refreshShift();
   return r;
 }
 
-$("#reader").onclick = tap;
-document.addEventListener("keydown", (e) => { if (e.code === "Space" && !$("#run").classList.contains("hidden")) { e.preventDefault(); tap(); } });
+// ---------- Fin de service ----------
+$("#end").onclick = async () => {
+  if (S.queue.length && !S.online) return toast("Transmettez d’abord les paiements hors ligne (réseau requis)", "error");
+  await sync();
+  try {
+    const sv = await api("/api/scan/shift/end", { method: "POST", token: S.token });
+    const mins = Math.round((new Date(sv.shift.end) - new Date(sv.shift.start)) / 60000);
+    $("#sheet-card").innerHTML = `<h2 style="margin:0">Service terminé</h2><p class="muted" style="margin:4px 0 0">${esc(sv.driver.name)} · ${esc(sv.vehicle.plate)} · ${mins} min</p>
+      <div class="sum"><div class="stat"><small>Recette</small><b>${fcfa(sv.revenue)}</b></div><div class="stat"><small>Passagers</small><b>${sv.passengers}</b></div>
+      <div class="stat"><small>Refus</small><b>${sv.refused}</b></div><div class="stat"><small>Début</small><b>${hhmm(sv.shift.start)}</b></div></div>
+      <button class="btn-main" id="bye">Terminer</button>`;
+    $("#sheet").classList.remove("hidden");
+    $("#bye").onclick = logout;
+  } catch (e) { toast(e.message, "error"); }
+};
+function logout() {
+  clearInterval(S.poll);
+  sessionStore.del("metala.scan.token");
+  $("#sheet").classList.add("hidden");
+  $("#run").classList.add("hidden");
+  $("#login").classList.remove("hidden");
+  S.token = null;
+  stepDriver();
+}
 
 // Pilotage depuis la démo guidée.
 window.metalaDemo = {
-  ready: () => !!S.device && !$("#run").classList.contains("hidden") && !!S.config,
-  select,
+  ready: () => !!S.token && !$("#run").classList.contains("hidden") && !!S.config,
+  select: (k) => { S.medium = MEDIA.find((m) => m.key === k) || S.medium; renderMedia(); },
   setOnline,
   queued: () => S.queue.length,
-  tap: async (key) => { if (key) select(key); return tap(); },
+  tap: (k) => tap(k),
 };
 
 boot();
