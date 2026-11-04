@@ -2,155 +2,31 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Metala · Prototype</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0a2530">
+<title>Metala</title>
 <link rel="stylesheet" href="/shared/metala.css">
 <style>
-  .hero { background: linear-gradient(135deg, #063a2f, #0b5d4b 55%, #0e7c66); color: #fff; padding: 52px 20px 64px; }
-  .wrap { max-width: 1080px; margin: 0 auto; }
-  .brand { font-weight: 900; letter-spacing: .14em; font-size: 13px; opacity: .85; }
-  h1 { font-size: clamp(34px, 6vw, 56px); margin: 10px 0 8px; letter-spacing: -.02em; line-height: 1.05; }
-  .tagline { font-size: 20px; opacity: .92; margin: 0 0 20px; max-width: 720px; line-height: 1.45; }
-  .cta { display: flex; gap: 10px; flex-wrap: wrap; }
-  .cta .btn { padding: 14px 22px; font-size: 16px; border-radius: 12px; }
-  .cta .btn.primary { background: #fff; color: #063a2f; }
-  .cta .btn.alt { background: rgba(255,255,255,.14); }
-  .cta small { display: block; width: 100%; opacity: .75; font-size: 13px; margin-top: 4px; }
-  section { padding: 38px 16px 6px; }
-  h2 { font-size: clamp(22px, 3vw, 28px); margin: 0 0 6px; letter-spacing: -.01em; }
-  .sub { color: var(--muted); margin: 0 0 18px; font-size: 16px; }
-  .grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
-  .pain h3 { margin: 4px 0 8px; font-size: 17px; }
-  .pain ul { margin: 0; padding-left: 18px; color: #374151; line-height: 1.65; font-size: 15px; }
-  .pain .who { font-size: 26px; }
-  .bricks { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
-  .brick { display: flex; flex-direction: column; gap: 8px; text-decoration: none; color: inherit; transition: transform .15s; }
-  a.brick:hover { transform: translateY(-2px); }
-  .brick .ico { width: 46px; height: 46px; border-radius: 13px; display: flex; align-items: center; justify-content: center; font-size: 23px; color: #fff; }
-  .brick .who { font-size: 12px; font-weight: 800; color: var(--brand-2); text-transform: uppercase; letter-spacing: .05em; }
-  .brick h3 { margin: 0; font-size: 19px; }
-  .brick p { margin: 0; color: #4b5563; line-height: 1.5; font-size: 14.5px; }
-  .brick .gain { margin-top: auto; padding-top: 8px; border-top: 1px dashed var(--line); font-size: 13.5px; color: #065f46; font-weight: 600; }
-  .brick .open { font-weight: 800; color: var(--brand-2); font-size: 14px; }
-  .flow { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0; counter-reset: s; }
-  .flow > div { position: relative; padding: 16px 14px 14px; background: #fff; border-radius: 14px; margin: 0 6px; box-shadow: var(--shadow); }
-  .flow > div::before { counter-increment: s; content: counter(s); width: 28px; height: 28px; border-radius: 50%; background: var(--brand-2); color: #fff; font-weight: 900; display: flex; align-items: center; justify-content: center; font-size: 14px; margin-bottom: 8px; }
-  .flow > div:not(:last-child)::after { content: "→"; position: absolute; right: -14px; top: 50%; transform: translateY(-50%); color: var(--brand-2); font-weight: 900; z-index: 1; }
-  .flow b { display: block; margin-bottom: 4px; }
-  .flow span { color: #4b5563; font-size: 13.5px; line-height: 1.45; }
-  .flow .tagp { display: inline-block; margin-top: 8px; font-size: 11px; font-weight: 800; padding: 2px 8px; border-radius: 999px; background: #e8efed; color: var(--brand-ink); }
-  .nums { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
-  .nums .card { text-align: center; }
-  .nums b { display: block; font-size: 38px; font-weight: 900; color: var(--brand); line-height: 1.1; }
-  .nums span { color: var(--muted); font-size: 14px; }
-  .note { font-size: 13px; color: var(--muted); margin-top: 10px; }
-  .creds { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
-  .creds code { background: #eef2f1; padding: 1px 6px; border-radius: 6px; font-size: 13px; }
-  footer { text-align: center; color: var(--muted); font-size: 13px; padding: 40px 16px 50px; }
-  @media (max-width: 860px) {
-    .flow { grid-template-columns: 1fr; gap: 10px; }
-    .flow > div::after { display: none; }
-  }
+  body { background: #0a2530; color: #eaf4f2; min-height: 100dvh; display: flex; align-items: center; justify-content: center; padding: 24px 16px; }
+  .wrap { width: min(440px, 100%); }
+  .mark { width: 64px; height: 64px; border-radius: 20px; background: linear-gradient(140deg, #34d399, #0e7c66); color: #06231b; font-weight: 900; font-size: 34px; display: flex; align-items: center; justify-content: center; }
+  h1 { margin: 16px 0 4px; letter-spacing: .2em; font-size: 26px; }
+  p { color: #8fadab; margin: 0 0 24px; }
+  a.app { display: flex; align-items: center; gap: 14px; padding: 16px; border-radius: 20px; background: #113442; border: 1px solid rgba(255,255,255,.08); color: inherit; text-decoration: none; margin-bottom: 10px; }
+  a.app b { display: block; font-size: 17px; }
+  a.app small { color: #8fadab; }
+  a.app span.i { width: 46px; height: 46px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 22px; flex: none; }
+  a.app::after { content: "›"; margin-left: auto; color: #8fadab; font-size: 22px; }
 </style>
 </head>
 <body>
-<div class="demo-banner"><strong>Prototype de démonstration</strong> : opérateurs, lignes et voyageurs fictifs, GPS simulé, aucun paiement réel.</div>
-<header class="hero">
-  <div class="wrap">
-    <div class="brand">GENIUS GROUPS · METALA</div>
-    <h1>Votre ville.<br>Votre mobilité.</h1>
-    <p class="tagline">Le socle qui fait fonctionner <b>toute la mobilité du Grand Abidjan</b> : entreprises publiques, compagnies privées, gbaka, woro-woro et taxis compteurs, avec un seul moyen de paiement, le <b>Metala Pass</b>.</p>
-    <div class="cta">
-      <a class="btn primary" href="/demo/">▶ Voir la démo guidée</a>
-      <a class="btn alt" href="#briques">Explorer chaque écran</a>
-      <small>La démo guidée affiche les trois écrans côte à côte et raconte un trajet en 11 étapes (environ 3 minutes).</small>
-    </div>
-  </div>
-</header>
-
-<main class="wrap">
-  <section>
-    <h2>Le problème aujourd’hui</h2>
-    <p class="sub">15 millions de déplacements par jour dans le Grand Abidjan, et chacun navigue à vue.</p>
-    <div class="grid3">
-      <div class="card pain"><div class="who">🧍</div><h3>Pour le voyageur</h3><ul><li>Impossible de savoir quand le bus arrive</li><li>Peu d’information sur les lignes et arrêts</li><li>Monnaie, tickets, moyens de paiement multiples</li></ul></div>
-      <div class="card pain"><div class="who">🚌</div><h3>Pour le transporteur</h3><ul><li>Recettes difficiles à collecter et contrôler</li><li>Aucune donnée consolidée d’exploitation</li><li>Clientèle difficile à fidéliser</li></ul></div>
-      <div class="card pain"><div class="who">🏛️</div><h3>Pour la ville</h3><ul><li>Fin de l’exclusivité SOTRA : de nouveaux opérateurs arrivent</li><li>Programme PMDIA et système de transport intelligent</li><li>Besoin d’un acteur technologique local</li></ul></div>
-    </div>
-  </section>
-
-  <section id="briques">
-    <h2>Trois applications, un moyen de paiement</h2>
-    <p class="sub">Metala ne possède pas de véhicules : il donne à chaque acteur l’outil dont il a besoin.</p>
-    <div class="bricks">
-      <a class="card brick" href="/app/">
-        <div class="ico" style="background:#0e7c66">📱</div><span class="who">Le voyageur</span><h3>Metala App</h3>
-        <p>Trajet porte-à-porte depuis chez soi, lignes et horaires de tous les modes, paiement par carte ou QR, budget transport mensuel.</p>
-        <div class="gain">✔ Savoir quand partir, et payer sans monnaie</div><span class="open">Ouvrir l’App →</span>
-      </a>
-      <a class="card brick" href="/app/">
-        <div class="ico" style="background:#13a383">💳</div><span class="who">Le moyen de paiement</span><h3>Metala Pass</h3>
-        <p>Carte NFC et QR dans l’App, avec porte-monnaie rechargé en Mobile Money. Accepté dans le bus, le gbaka, le bateau, le woro-woro et le taxi, même sans réseau.</p>
-        <div class="gain">✔ Un seul Pass pour toute la ville</div><span class="open">Voir le Pass →</span>
-      </a>
-      <a class="card brick" href="/scan/">
-        <div class="ico" style="background:#111827">📟</div><span class="who">Le chauffeur</span><h3>Metala Scan</h3>
-        <p>Prise de service avec code PIN, encaissement en un geste (prix fixe ou compteur), recette du service, fonctionnement hors ligne.</p>
-        <div class="gain">✔ Une recette tracée, sans argent liquide</div><span class="open">Ouvrir Scan →</span>
-      </a>
-      <a class="card brick" href="/fleet/">
-        <div class="ico" style="background:#c2410c">🖥️</div><span class="who">Le propriétaire de flotte · Metala</span><h3>Metala Fleet</h3>
-        <p>Véhicules, chauffeurs, lignes, recettes et rapprochement. Le super administrateur Metala inscrit et supervise toutes les compagnies.</p>
-        <div class="gain">✔ Piloter sa flotte, qu’elle compte 2 taxis ou 500 bus</div><span class="open">Ouvrir Fleet →</span>
-      </a>
-    </div>
-  </section>
-
-  <section>
-    <h2>Tous les transports du Grand Abidjan</h2>
-    <div class="grid3" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))">
-      <div class="card pain"><div class="who">🚌</div><h3>Entreprises publiques</h3><ul><li>Grandes flottes de bus</li><li>Bateaux-bus</li></ul></div>
-      <div class="card pain"><div class="who">🚐</div><h3>Compagnies privées</h3><ul><li>Navettes, lignes privées</li><li>Transport d’entreprise</li></ul></div>
-      <div class="card pain"><div class="who">🚖</div><h3>Transport artisanal</h3><ul><li>Gbaka de commune à commune</li><li>Woro-woro de quartier</li></ul></div>
-      <div class="card pain"><div class="who">🚕</div><h3>Taxis compteurs</h3><ul><li>Paiement au montant du compteur</li><li>Avec la carte ou le téléphone</li></ul></div>
-    </div>
-  </section>
-
-  <section>
-    <h2>Un trajet, de bout en bout</h2>
-    <p class="sub">Chaque montée relie voyageur, véhicule, opérateur et paiement.</p>
-    <div class="flow">
-      <div><b>Partir</b><span>Depuis chez elle, Awa sait quand partir pour arriver à l’heure.</span><span class="tagp">App</span></div>
-      <div><b>Recharger</b><span>Elle achète un carnet en Mobile Money.</span><span class="tagp">App</span></div>
-      <div><b>Payer</b><span>Elle présente sa carte ou le QR de son téléphone.</span><span class="tagp">Pass · Scan</span></div>
-      <div><b>Décider</b><span>Le serveur vérifie et débite un trajet en moins d’une seconde.</span><span class="tagp">Plateforme</span></div>
-      <div><b>Piloter</b><span>Le chauffeur et le propriétaire voient la recette en direct.</span><span class="tagp">Scan · Fleet</span></div>
-    </div>
-  </section>
-
-  <section>
-    <h2>Le pilote proposé</h2>
-    <p class="sub">14 semaines, financement libéré par jalons, avant toute extension.</p>
-    <div class="nums">
-      <div class="card"><b>2</b><span>opérateurs</span></div>
-      <div class="card"><b>10</b><span>véhicules équipés</span></div>
-      <div class="card"><b>2</b><span>corridors</span></div>
-      <div class="card"><b>500</b><span>voyageurs</span></div>
-      <div class="card"><b>≤ 1 s</b><span>par validation</span></div>
-      <div class="card"><b>0</b><span>écart de rapprochement</span></div>
-    </div>
-    <p class="note">Objectifs proposés au Conseil, à valider : ce ne sont pas des engagements.</p>
-  </section>
-
-  <section>
-    <h2>Pour explorer seul</h2>
-    <div class="creds">
-      <div class="card small"><b>App</b> : bouton « Essayer avec le compte d’Awa ». Le code SMS s’affiche à l’écran.</div>
-      <div class="card small"><b>Scan</b> : choisissez un chauffeur et son véhicule, code PIN <code>1234</code>. Essayez aussi le taxi de Jean Kouassi.</div>
-      <div class="card small"><b>Fleet</b> : <code>fleet@lagune.demo</code> / <code>metala-demo</code> (propriétaire), ou <code>admin@metala.demo</code> (super administrateur).</div>
-    </div>
-  </section>
-</main>
-<footer>Metala, prototype du MVP · fond de carte © OpenFreeMap, OpenMapTiles, contributeurs OpenStreetMap</footer>
+<div class="wrap">
+  <div class="mark">M</div>
+  <h1>METALA</h1>
+  <p>Votre ville. Votre mobilité.</p>
+  <a class="app" href="/app/"><span class="i" style="background:#0e7c66">📱</span><span><b>Metala App</b><small>Voyageurs · trajets, réservation, Metala Pass</small></span></a>
+  <a class="app" href="/scan/"><span class="i" style="background:#f5a24b">📟</span><span><b>Metala Scan</b><small>Agents transporteurs · encaissement, réservations, recette</small></span></a>
+  <a class="app" href="/fleet/"><span class="i" style="background:#c2410c">🖥️</span><span><b>Metala Gestion</b><small>Compagnies · flotte, lignes, conducteurs, tarifs</small></span></a>
+</div>
 </body>
 </html>

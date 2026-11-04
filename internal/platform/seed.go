@@ -220,6 +220,31 @@ func (p *Platform) Seed() error {
 	if _, err := p.demoTap("dev_102", DemoAwa.CardUID); err != nil {
 		return err
 	}
+	// Trois conducteurs en service depuis le début de matinée, et des places
+	// réservées sur le prochain départ du premier bus M2.
+	setNow(ref)
+	p.mu.Lock()
+	start := ref.Add(-3 * time.Hour)
+	for _, x := range [][2]string{{"drv_kone", "veh_101"}, {"drv_bamba", "veh_201"}, {"drv_diallo", "veh_301"}} {
+		sh := &Shift{ID: newID("shf"), DriverID: x[0], VehicleID: x[1], Start: start}
+		p.shifts[sh.ID] = sh
+	}
+	var next *Departure
+	for _, d := range p.departures {
+		if d.VehicleID == "veh_101" && (next == nil || d.DepartAt.Before(next.DepartAt)) {
+			next = d
+		}
+	}
+	koffi2 := travelerByPhoneLocked(p, DemoKoffi.Phone)
+	yao := travelerByPhoneLocked(p, DemoYao.Phone)
+	p.mu.Unlock()
+	if next != nil {
+		for _, pr := range []Principal{awa, koffi2, yao} {
+			if _, err := p.Reserve(pr, next.ID); err != nil {
+				return err
+			}
+		}
+	}
 	p.mu.Lock()
 	p.now = realNow
 	p.mu.Unlock()
@@ -295,6 +320,10 @@ func (p *Platform) ensureWallet(pr Principal, min int64) error {
 		return nil
 	}
 	return p.demoPurchase(pr, "prd_wallet_2000")
+}
+
+func travelerByPhoneLocked(p *Platform, phone string) Principal {
+	return Principal{Role: RoleTraveler, TravelerID: p.travelerByPhone[phone]}
 }
 
 func sortedKeys[V any](m map[string]V) []string {

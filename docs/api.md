@@ -25,10 +25,11 @@ ses heures de service et les minutes de passage à chaque arrêt (`stop_minutes`
 
 | Méthode | Chemin | Corps |
 |---|---|---|
-| POST | `/api/auth/otp/request` | `{phone}` (en mode démo, la réponse contient `dev_code`) |
+| POST | `/api/auth/otp/request` | `{phone}` (en prototype, la réponse contient `dev_code`) |
 | POST | `/api/auth/otp/verify` | `{phone, code, name?}` → `{token, traveler}` |
 | POST | `/api/auth/staff` | `{username, password}` → `{token, principal}` |
 | POST | `/api/auth/device` | `{device_id, secret}` → `{token, principal}` |
+| POST | `/api/auth/register` | `{name, kind, admin_email, password}` : une compagnie s'inscrit et obtient son compte administrateur |
 | POST | `/api/auth/driver` | `{phone, pin, vehicle_id}` → ouvre un service sur le valideur du véhicule |
 | POST | `/api/auth/logout` | — |
 
@@ -60,6 +61,7 @@ Le catalogue contient aussi des recharges du porte-monnaie (`kind: "wallet"`, sa
 | Méthode | Chemin | Description |
 |---|---|---|
 | POST | `/api/scan/challenge` | → `{challenge, expires_at}` |
+| GET | `/api/scan/reservations` | prochains départs du véhicule et voyageurs ayant réservé (à bord ou attendus) |
 | GET | `/api/scan/shift` | service en cours : chauffeur, véhicule, recette, passagers, dernières transactions |
 | POST | `/api/scan/shift/end` | clôt le service et renvoie son bilan |
 | POST | `/api/scan/validate` | `{tap_id, card_uid, challenge, proof}` (carte) ou `{tap_id, pay_token}` (téléphone), `amount` pour un taxi compteur → validation (`accepted` \| `already_validated` \| `rejected`, `reason`, `message`, `trips_remaining`) |
@@ -83,19 +85,23 @@ Un `operator_admin` est limité à son opérateur. S'il demande `?operator_id=` 
 | GET | `/api/fleet/reconciliation` | rapprochement PSP ↔ grand livre ↔ registres |
 | POST | `/api/fleet/devices/{id}/freeze` | `{frozen: bool}` |
 | POST | `/api/fleet/vehicles` | `{plate, line_id | mode: "taxi", reservable_seats}` : ajoute un véhicule et son valideur |
+| POST | `/api/fleet/stops` | `{name, lat, lon}` : nouvel arrêt (partagé par tout le réseau) |
+| POST | `/api/fleet/lines` | `{code, name, mode, stop_ids, headway_min, first_dep, last_dep, reservable, fare}` : publie une ligne |
+| GET / POST | `/api/fleet/products` | tarifs de la compagnie / `{name, kind, trips, validity_days, price}` |
+| PUT | `/api/fleet/products/{id}` | `{price}` : nouveau prix (les titres déjà vendus gardent le leur) |
+| GET | `/api/fleet/drivers/{id}/activity` | services, passagers et recette du conducteur (jour, mois) |
 | GET / POST | `/api/fleet/drivers` | chauffeurs (statut de service, recette) / `{name, phone, pin}` |
 | GET / POST | `/api/admin/operators` | super administrateur : compagnies / `{name, kind, admin_email, password}` |
 | POST | `/api/admin/cards/{uid}/revoke` | `platform_admin` uniquement |
 
-## Simulateurs (mode démo uniquement)
+## Simulateurs (prototype uniquement)
 
 Ces routes ne sont pas exposées si `METALA_ENV=production`.
 
 | Méthode | Chemin | Description |
 |---|---|---|
-| GET | `/api/dev/inventory` | terminaux (avec secrets), cartes, comptes de démonstration |
+| GET | `/api/dev/inventory` | terminaux (avec secrets), cartes, comptes de test |
 | POST | `/api/dev/cards/{uid}/respond` | joue le rôle de la puce : `{challenge}` → `{proof}` |
 | POST | `/api/dev/psp/{payment_id}/confirm?status=succeeded\|failed&duplicate=1` | joue le rôle du PSP |
 | POST | `/api/dev/cards/{uid}/offline-debit` | joue le rôle de la puce lors d’un débit hors ligne : `{device_id, amount}` → transaction signée |
 | POST | `/api/dev/travelers/{phone}/pay-token` | joue le rôle de la caméra du valideur qui lit le QR de l'App |
-| POST | `/api/dev/reset` | remet la démonstration à zéro (utilisé par la démo guidée) |

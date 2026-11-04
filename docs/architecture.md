@@ -12,7 +12,7 @@
                                              │
               État en mémoire (prototype) → PostgreSQL + PostGIS + Redis (cible)
                                              │
-              Simulateurs (mode démo) : GPS ×10, PSP signé, puce NFC, voyageurs fictifs
+              Simulateurs (prototype) : GPS ×10, PSP signé, puce NFC, voyageurs fictifs
 ```
 
 Le backend applique l'architecture cible de la proposition (slide 12) : un **monolithe modulaire** en Go,

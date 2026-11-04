@@ -89,6 +89,15 @@ type ShiftView struct {
 	Revenue    int64        `json:"revenue"`
 	Refused    int          `json:"refused"`
 	Recent     []Validation `json:"recent"`
+	// Recette du jour : du véhicule (tous services) et de la ligne (tous véhicules).
+	VehicleToday Takings `json:"vehicle_today"`
+	LineToday    Takings `json:"line_today"`
+	Reservations int     `json:"reservations"` // places réservées à venir sur ce véhicule
+}
+
+type Takings struct {
+	Revenue    int64 `json:"revenue"`
+	Passengers int   `json:"passengers"`
 }
 
 func (p *Platform) ShiftSummary(pr Principal) (*ShiftView, error) {
@@ -115,6 +124,25 @@ func (p *Platform) shiftViewLocked(id string) (*ShiftView, error) {
 	end := p.now()
 	if sh.End != nil {
 		end = *sh.End
+	}
+	day := startOfDay(p.now())
+	for _, val := range p.validations {
+		if val.Status != ValAccepted || val.At.Before(day) {
+			continue
+		}
+		if val.VehicleID == sh.VehicleID {
+			v.VehicleToday.Revenue += val.Debited
+			v.VehicleToday.Passengers++
+		}
+		if v.Vehicle.LineID != "" && val.LineID == v.Vehicle.LineID {
+			v.LineToday.Revenue += val.Debited
+			v.LineToday.Passengers++
+		}
+	}
+	for _, r := range p.reservations {
+		if d := p.departures[r.DepartureID]; d != nil && r.Status == "confirmed" && d.VehicleID == sh.VehicleID && d.DepartAt.After(p.now().Add(-30*time.Minute)) {
+			v.Reservations++
+		}
 	}
 	for i := len(p.validations) - 1; i >= 0; i-- {
 		val := p.validations[i]

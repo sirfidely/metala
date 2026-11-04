@@ -180,6 +180,7 @@ func (p *Platform) OfflineSync(pr Principal, txs []OfflineTx) (*SyncResult, erro
 			Status: ValAccepted, Message: fmt.Sprintf("Validé hors ligne — solde %d FCFA", tx.Balance),
 			Debited: tx.Amount, Source: "wallet", Offline: true, WalletBalance: &bal, TitleName: "Porte-monnaie",
 		}
+		p.markBoardedLocked(v)
 		p.validations = append(p.validations, v)
 		sort.SliceStable(p.validations, func(i, j int) bool { return p.validations[i].At.Before(p.validations[j].At) })
 		p.postWalletUsageLocked(veh.OperatorID, v.ID, tx.Amount)

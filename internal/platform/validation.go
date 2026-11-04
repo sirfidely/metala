@@ -112,6 +112,9 @@ func (p *Platform) Validate(pr Principal, req TapRequest) (*Validation, error) {
 		VehicleID: veh.ID, OperatorID: veh.OperatorID, LineID: veh.LineID, At: now,
 	}
 	record := func(v *Validation) (*Validation, error) {
+		if v.Status == ValAccepted || v.Status == ValAlready {
+			p.markBoardedLocked(v)
+		}
 		p.validations = append(p.validations, v)
 		p.tapResults[tapKey] = v
 		cp := *v
@@ -119,6 +122,13 @@ func (p *Platform) Validate(pr Principal, req TapRequest) (*Validation, error) {
 	}
 
 	v.DriverID = pr.DriverID
+	if v.DriverID == "" { // terminal sans session chauffeur : conducteur en service sur le véhicule
+		for _, sh := range p.shifts {
+			if sh.VehicleID == veh.ID && sh.End == nil {
+				v.DriverID = sh.DriverID
+			}
+		}
+	}
 	metered := veh.Mode == ModeTaxi
 	if metered && (req.Amount <= 0 || req.Amount > WalletCap) {
 		return nil, fmt.Errorf("%w : montant de la course requis", ErrInvalid)

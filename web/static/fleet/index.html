@@ -3,123 +3,56 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Metala Fleet</title>
+<title>Metala Gestion</title>
 <link rel="stylesheet" href="/vendor/maplibre-gl-4.7.1/maplibre-gl.css">
 <link rel="stylesheet" href="/shared/metala.css">
+<link rel="stylesheet" href="fleet.css">
 <script src="/vendor/maplibre-gl-4.7.1/maplibre-gl.js"></script>
-<style>
-  .login-wrap { min-height: 100dvh; display: flex; align-items: center; justify-content: center; padding: 16px; background: linear-gradient(160deg, #063a2f, #0b5d4b); }
-  .login-card { width: min(420px, 100%); }
-  .login-card h1 { margin: 0; font-size: 24px; }
-  .demo-acc { display: grid; gap: 8px; margin-top: 16px; }
-  .demo-acc button { text-align: left; border: 1px solid var(--line); background: #fafbfb; border-radius: 10px; padding: 10px 12px; }
-  .demo-acc button:hover { border-color: var(--brand-2); }
-  .layout { display: grid; grid-template-columns: 230px 1fr; min-height: 100dvh; }
-  aside { background: #062f27; color: #cfe3dd; padding: 18px 12px; display: flex; flex-direction: column; gap: 4px; }
-  aside .logo { font-weight: 900; letter-spacing: .16em; color: #fff; padding: 0 10px 2px; font-size: 18px; }
-  aside .logo small { display: block; font-size: 11px; letter-spacing: .08em; color: #6ee7b7; font-weight: 700; margin-top: 2px; }
-  aside nav { margin-top: 18px; display: flex; flex-direction: column; gap: 2px; }
-  aside nav button { text-align: left; background: none; border: 0; color: #cfe3dd; padding: 10px 12px; border-radius: 9px; font-weight: 600; }
-  aside nav button.active, aside nav button:hover { background: rgba(255,255,255,.08); color: #fff; }
-  aside .who { margin-top: auto; font-size: 12px; padding: 10px; border-top: 1px solid rgba(255,255,255,.1); }
-  main { padding: 22px 26px 40px; min-width: 0; }
-  .head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
-  .head h2 { margin: 0; font-size: 22px; }
-  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }
-  .kpi .lbl { font-size: 12px; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
-  .kpi .val { font-size: 22px; white-space: nowrap; font-weight: 800; margin-top: 4px; font-variant-numeric: tabular-nums; }
-  .kpi .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
-  .grid2 { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; }
-  #fleet-map { height: 420px; border-radius: 12px; overflow: hidden; }
-  .fbar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; margin: 10px 0 6px; background: #e5e7eb; }
-  .fbar i { display: block; height: 100%; }
-  .card h3 { margin: 0 0 10px; font-size: 15px; }
-  .recon { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
-  .recon table td:last-child { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
-  .check-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid #f0f2f1; font-size: 14px; }
-  .scroll-x { overflow-x: auto; }
-  .intro { background: #fff8e6; border: 1px solid #fde8b0; color: #6b4e0b; border-radius: 12px; padding: 10px 14px 10px 38px; font-size: 13.5px; line-height: 1.5; margin-bottom: 16px; position: relative; }
-  .intro::before { content: "💡"; position: absolute; left: 13px; top: 10px; }
-  .intro b { color: #4a3505; }
-  body.no-explain .intro, body.no-explain .kpi .sub { display: none; }
-  .feed { display: grid; gap: 0; }
-  .feed-item { display: flex; align-items: center; gap: 10px; padding: 9px 4px; border-bottom: 1px solid #f0f2f1; font-size: 13.5px; }
-  .feed-item .when { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
-  .feed-item.new { animation: newrow 2.4s ease-out; }
-  @keyframes newrow { 0% { background: #d1fae5; } 100% { background: transparent; } }
-  .feed-ico { width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 900; flex: none; }
-  .feed-ico.accepted { background: #dcfce7; color: #166534; } .feed-ico.already_validated { background: #fef3c7; color: #92400e; } .feed-ico.rejected { background: #fee2e2; color: #991b1b; }
-  .card.hl { animation: hl 2s ease-out; }
-  @keyframes hl { 0% { box-shadow: 0 0 0 4px #10b981; } 100% { box-shadow: var(--shadow); } }
-  .form-card { margin-bottom: 16px; }
-  .form-card h3 { margin: 0 0 12px; font-size: 15px; }
-  .form-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
-  .form-row .field { margin: 0; flex: 1; min-width: 150px; }
-  .form-row .btn { height: 44px; }
-  .kind { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; padding: 3px 8px; border-radius: 6px; background: #eef2f1; color: #374151; }
-  .tg-explain { border: 1px solid #d1d5db; background: #fff; border-radius: 9px; padding: 6px 10px; font-size: 13px; }
-  body.embed .demo-banner { display: none; }
-  body.embed main { padding: 14px; }
-  @media (max-width: 860px) {
-    .layout { grid-template-columns: 1fr; }
-    aside { flex-direction: row; flex-wrap: wrap; align-items: center; padding: 10px; }
-    aside nav { flex-direction: row; flex-wrap: wrap; margin: 0; }
-    aside .who { display: none; }
-    main { padding: 16px; }
-    .grid2 { grid-template-columns: 1fr; }
-  }
-</style>
 </head>
 <body>
-<div class="demo-banner"><strong>Démo</strong> — opérateurs fictifs, GPS et montées simulés · <a href="/">accueil du prototype</a></div>
-
 <section id="login" class="login-wrap">
   <div class="card login-card">
-    <div class="muted small" style="font-weight:800;letter-spacing:.12em">METALA FLEET</div>
-    <h1>Portail opérateur</h1>
-    <p class="muted small">Lignes, flotte, GPS, validations, recettes et rapprochement.</p>
-    <div class="field"><label for="u">Identifiant</label><input id="u" autocomplete="username"></div>
-    <div class="field"><label for="pw">Mot de passe</label><input id="pw" type="password" autocomplete="current-password"></div>
-    <button class="btn block" id="btn-login">Se connecter</button>
-    <div class="demo-acc" id="demo-acc"></div>
+    <div class="brand"><span class="m">M</span><span>METALA <small>GESTION</small></span></div>
+    <div class="seg2"><button data-l="in" class="on">Connexion</button><button data-l="up">Inscrire ma compagnie</button></div>
+    <div id="l-in">
+      <div class="field"><label for="u">E-mail</label><input id="u" autocomplete="username" placeholder="admin@compagnie.ci"></div>
+      <div class="field"><label for="pw">Mot de passe</label><input id="pw" type="password" autocomplete="current-password"></div>
+      <button class="btn block" id="btn-login">Se connecter</button>
+      <div class="demo-acc" id="demo-acc"></div>
+    </div>
+    <div id="l-up" class="hidden">
+      <div class="field"><label for="r-name">Nom de la compagnie</label><input id="r-name" placeholder="Transports Eburnea"></div>
+      <div class="field"><label for="r-kind">Catégorie</label><select id="r-kind"><option value="public">Entreprise publique</option><option value="prive" selected>Compagnie privée</option><option value="artisanal">Transport artisanal (gbaka, woro-woro)</option><option value="taxi">Taxis compteurs</option></select></div>
+      <div class="field"><label for="r-mail">E-mail de l’administrateur</label><input id="r-mail" placeholder="direction@compagnie.ci" autocomplete="email"></div>
+      <div class="field"><label for="r-pw">Mot de passe</label><input id="r-pw" type="password" placeholder="8 caractères minimum" autocomplete="new-password"></div>
+      <button class="btn block" id="btn-register">Créer le compte</button>
+      <p class="small muted" style="margin:12px 0 0">Vous pourrez ensuite enregistrer vos lignes, tarifs, véhicules et conducteurs.</p>
+    </div>
   </div>
 </section>
 
 <section id="app" class="layout hidden">
   <aside>
-    <div class="logo">METALA<small>FLEET</small></div>
+    <div class="brand light"><span class="m">M</span><span>METALA <small>GESTION</small></span></div>
     <nav id="nav">
-      <button data-v="dash" class="active">Tableau de bord</button>
-      <button data-v="vehicles">Véhicules</button>
-      <button data-v="drivers">Chauffeurs</button>
+      <button data-v="dash">Tableau de bord</button>
       <button data-v="lines">Lignes</button>
-      <button data-v="validations">Paiements</button>
-      <button data-v="recon">Recettes & rapprochement</button>
-      <button data-v="operators" id="nav-operators" class="hidden">Opérateurs</button>
-      <button data-v="cards" id="nav-cards" class="hidden">Cartes Metala Pass</button>
+      <button data-v="fares">Tarifs</button>
+      <button data-v="vehicles">Véhicules</button>
+      <button data-v="drivers">Conducteurs</button>
+      <button data-v="payments">Paiements</button>
+      <button data-v="recon">Recettes</button>
+      <button data-v="operators" class="admin-only hidden">Compagnies</button>
+      <button data-v="cards" class="admin-only hidden">Cartes Pass</button>
     </nav>
-    <div class="who"><div id="who"></div><button class="btn ghost small" id="logout" style="color:#6ee7b7;padding-left:0">Se déconnecter</button></div>
+    <div class="who"><div id="who"></div><button class="btn ghost small" id="logout">Se déconnecter</button></div>
   </aside>
   <main>
     <div class="head">
-      <h2 id="view-title">Tableau de bord</h2>
-      <div class="row">
-        <select id="op-filter" class="hidden" style="padding:8px 10px;border-radius:9px;border:1px solid #d1d5db"></select>
-        <button class="tg-explain" id="tg-explain" title="Afficher ou masquer les explications">💡 Explications</button>
-        <span class="badge sim">Données simulées</span>
-        <span class="small muted" id="updated"></span>
-      </div>
+      <h2 id="view-title"></h2>
+      <div class="row"><select id="op-filter" class="hidden" aria-label="Compagnie"></select><span class="small muted" id="updated"></span></div>
     </div>
-    <div class="intro" id="intro"></div>
-    <div id="v-dash"></div>
-    <div id="v-map-wrap" class="card" style="padding:8px;margin-top:16px"><div id="fleet-map"></div></div>
-    <div id="v-vehicles" class="hidden"><div class="card form-card" id="f-vehicles"></div><div id="t-vehicles"></div></div>
-    <div id="v-drivers" class="hidden"><div class="card form-card" id="f-drivers"></div><div id="t-drivers"></div></div>
-    <div id="v-lines" class="hidden"></div>
-    <div id="v-operators" class="hidden"><div class="card form-card" id="f-operators"></div><div id="t-operators"></div></div>
-    <div id="v-validations" class="hidden"></div>
-    <div id="v-recon" class="hidden"></div>
-    <div id="v-cards" class="hidden"></div>
+    <div id="view"></div>
   </main>
 </section>
 <script type="module" src="fleet.js"></script>

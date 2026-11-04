@@ -66,6 +66,14 @@ func (s *Server) Handler() http.Handler {
 	})
 
 	// Authentification
+	mux.HandleFunc("POST /api/auth/register", func(w http.ResponseWriter, r *http.Request) {
+		var in platform.NewOperator
+		if !readJSON(w, r, &in) {
+			return
+		}
+		tok, pr, err := s.p.RegisterOperator(in)
+		respond(w, map[string]any{"token": tok, "principal": pr}, err)
+	})
 	mux.HandleFunc("POST /api/auth/driver", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
 			Phone     string `json:"phone"`
@@ -177,6 +185,10 @@ func (s *Server) Handler() http.Handler {
 		v, err := s.p.Validate(pr, in)
 		respond(w, v, err)
 	}))
+	mux.Handle("GET /api/scan/reservations", s.auth(func(w http.ResponseWriter, r *http.Request, pr platform.Principal) {
+		v, err := s.p.VehicleReservations(pr)
+		respond(w, v, err)
+	}))
 	mux.Handle("GET /api/scan/shift", s.auth(func(w http.ResponseWriter, r *http.Request, pr platform.Principal) {
 		v, err := s.p.ShiftSummary(pr)
 		respond(w, v, err)
@@ -243,6 +255,48 @@ func (s *Server) Handler() http.Handler {
 		v, err := s.p.AddVehicle(pr, in)
 		respond(w, v, err)
 	}))
+	mux.Handle("POST /api/fleet/stops", s.auth(func(w http.ResponseWriter, r *http.Request, pr platform.Principal) {
+		var in platform.NewStop
+		if !readJSON(w, r, &in) {
+			return
+		}
+		st, err := s.p.AddStop(pr, in)
+		respond(w, st, err)
+	}))
+	mux.Handle("POST /api/fleet/lines", s.auth(func(w http.ResponseWriter, r *http.Request, pr platform.Principal) {
+		var in platform.NewLine
+		if !readJSON(w, r, &in) {
+			return
+		}
+		l, err := s.p.AddLine(pr, in)
+		respond(w, l, err)
+	}))
+	mux.Handle("GET /api/fleet/products", s.auth(func(w http.ResponseWriter, r *http.Request, pr platform.Principal) {
+		x, err := s.p.OperatorProducts(pr, op(r))
+		respond(w, x, err)
+	}))
+	mux.Handle("POST /api/fleet/products", s.auth(func(w http.ResponseWriter, r *http.Request, pr platform.Principal) {
+		var in platform.ProductInput
+		if !readJSON(w, r, &in) {
+			return
+		}
+		x, err := s.p.AddProduct(pr, in)
+		respond(w, x, err)
+	}))
+	mux.Handle("PUT /api/fleet/products/{id}", s.auth(func(w http.ResponseWriter, r *http.Request, pr platform.Principal) {
+		var in struct {
+			Price int64 `json:"price"`
+		}
+		if !readJSON(w, r, &in) {
+			return
+		}
+		x, err := s.p.UpdatePrice(pr, r.PathValue("id"), in.Price)
+		respond(w, x, err)
+	}))
+	mux.Handle("GET /api/fleet/drivers/{id}/activity", s.auth(func(w http.ResponseWriter, r *http.Request, pr platform.Principal) {
+		a, err := s.p.DriverActivity(pr, r.PathValue("id"))
+		respond(w, a, err)
+	}))
 	mux.Handle("GET /api/fleet/drivers", s.auth(func(w http.ResponseWriter, r *http.Request, pr platform.Principal) {
 		d, err := s.p.Drivers(pr, op(r))
 		respond(w, d, err)
@@ -283,9 +337,6 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("POST /api/dev/travelers/{phone}/pay-token", func(w http.ResponseWriter, r *http.Request) {
 			tok, err := s.p.DevPayToken(r.PathValue("phone"))
 			respond(w, map[string]string{"token": tok}, err)
-		})
-		mux.HandleFunc("POST /api/dev/reset", func(w http.ResponseWriter, r *http.Request) {
-			respond(w, map[string]bool{"ok": true}, s.p.Reset())
 		})
 		mux.HandleFunc("POST /api/dev/cards/{uid}/respond", func(w http.ResponseWriter, r *http.Request) {
 			var in struct {

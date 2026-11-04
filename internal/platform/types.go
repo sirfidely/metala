@@ -274,12 +274,13 @@ type Departure struct {
 }
 
 type Reservation struct {
-	ID          string    `json:"id"`
-	TravelerID  string    `json:"traveler_id"`
-	DepartureID string    `json:"departure_id"`
-	OperatorID  string    `json:"operator_id"`
-	Status      string    `json:"status"` // confirmed | cancelled
-	CreatedAt   time.Time `json:"created_at"`
+	ID          string     `json:"id"`
+	TravelerID  string     `json:"traveler_id"`
+	DepartureID string     `json:"departure_id"`
+	OperatorID  string     `json:"operator_id"`
+	Status      string     `json:"status"` // confirmed | cancelled
+	CreatedAt   time.Time  `json:"created_at"`
+	BoardedAt   *time.Time `json:"boarded_at,omitempty"` // le voyageur a payé à bord du véhicule réservé
 }
 
 // Comptes du grand livre (partie double).

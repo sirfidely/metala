@@ -3,8 +3,16 @@ package main
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"flag"
 	"log"
+	"math/big"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -22,6 +30,7 @@ func main() {
 	simulate := flag.Bool("sim", true, "activer le simulateur GPS de démonstration")
 	riders := flag.Bool("riders", true, "simuler des montées de voyageurs fictifs")
 	webDir := flag.String("web-dir", "", "servir les interfaces depuis ce dossier (développement) au lieu des fichiers intégrés")
+	useTLS := flag.Bool("https", false, "HTTPS avec un certificat auto-signé (la caméra des téléphones l'exige)")
 	flag.Parse()
 
 	cfg := platform.DefaultConfig()
@@ -52,7 +61,22 @@ func main() {
 		defer cancel()
 		_ = srv.Shutdown(sh)
 	}()
-	log.Printf("Metala prototype sur http://localhost%s (mode démo : %v)", *addr, cfg.DevMode)
+	if *useTLS {
+		cert, err := selfSigned()
+		if err != nil {
+			log.Fatal(err)
+		}
+		srv.TLSConfig = &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}
+		log.Printf("Metala sur https://localhost%s — sur un téléphone du même réseau : https://<adresse-IP-de-cet-ordinateur>%s", *addr, *addr)
+		for _, ip := range lanIPs() {
+			log.Printf("  https://%s%s", ip, *addr)
+		}
+		if err := srv.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+			log.Fatal(err)
+		}
+		return
+	}
+	log.Printf("Metala sur http://localhost%s", *addr)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
@@ -71,4 +95,38 @@ func mustEnv(k string) []byte {
 		log.Fatalf("%s doit être défini (≥ 32 caractères) en production", k)
 	}
 	return []byte(v)
+}
+
+// selfSigned génère un certificat éphémère pour localhost et les adresses du réseau local.
+func selfSigned() (tls.Certificate, error) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+	tpl := &x509.Certificate{
+		SerialNumber: big.NewInt(time.Now().UnixNano()),
+		Subject:      pkix.Name{CommonName: "Metala (prototype)"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(30 * 24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		DNSNames:     []string{"localhost"},
+		IPAddresses:  append([]net.IP{net.ParseIP("127.0.0.1")}, lanIPs()...),
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tpl, tpl, &key.PublicKey, key)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}, nil
+}
+
+func lanIPs() []net.IP {
+	var out []net.IP
+	addrs, _ := net.InterfaceAddrs()
+	for _, a := range addrs {
+		if n, ok := a.(*net.IPNet); ok && !n.IP.IsLoopback() && n.IP.To4() != nil {
+			out = append(out, n.IP)
+		}
+	}
+	return out
 }

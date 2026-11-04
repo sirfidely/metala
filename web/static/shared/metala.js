@@ -160,6 +160,8 @@ export async function createMap(container, { center, zoom, onStyle, dark = false
   let idx = 0, style = null;
   try { style = await fetchJSON(PROV[0].style, 4000); } catch { idx = 1; }
   if (!style) style = rasterStyle(PROV[idx], dark);
+  // La vue a pu changer pendant le chargement du style : plus de conteneur, plus de carte.
+  if (typeof container === "string" && !document.getElementById(container)) return null;
   const map = new maplibregl.Map({ container, center: center || ABIDJAN, zoom: zoom || 12, style, attributionControl: { compact: true } });
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
   map.metalaProvider = PROV[idx].label;
