@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/sirfidely/metala/internal/analytics"
 	"github.com/sirfidely/metala/internal/api"
 	"github.com/sirfidely/metala/internal/platform"
 	"github.com/sirfidely/metala/internal/sim"
@@ -32,6 +33,11 @@ func main() {
 	webDir := flag.String("web-dir", "", "servir les interfaces depuis ce dossier (développement) au lieu des fichiers intégrés")
 	useTLS := flag.Bool("https", false, "HTTPS avec un certificat auto-signé (la caméra des téléphones l'exige)")
 	flag.Parse()
+
+	analytics.Initialize()
+	analytics.InitializeLogCapture()
+	defer analytics.Close()
+	defer analytics.CloseLogCapture()
 
 	cfg := platform.DefaultConfig()
 	if os.Getenv("METALA_ENV") == "production" {
@@ -54,7 +60,7 @@ func main() {
 	if *webDir != "" {
 		static = os.DirFS(*webDir)
 	}
-	srv := &http.Server{Addr: *addr, Handler: api.New(p, static).Handler(), ReadHeaderTimeout: 5 * time.Second}
+	srv := &http.Server{Addr: *addr, Handler: analytics.RecoverPanics(api.New(p, static).Handler()), ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		<-ctx.Done()
 		sh, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -67,6 +73,7 @@ func main() {
 			log.Fatal(err)
 		}
 		srv.TLSConfig = &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}
+		analytics.LogInfo(ctx, "server_listening_tls")
 		log.Printf("Metala sur https://localhost%s — sur un téléphone du même réseau : https://<adresse-IP-de-cet-ordinateur>%s", *addr, *addr)
 		for _, ip := range lanIPs() {
 			log.Printf("  https://%s%s", ip, *addr)
@@ -76,6 +83,7 @@ func main() {
 		}
 		return
 	}
+	analytics.LogInfo(ctx, "server_listening")
 	log.Printf("Metala sur http://localhost%s", *addr)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)

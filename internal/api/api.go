@@ -4,6 +4,8 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -14,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sirfidely/metala/internal/analytics"
 	"github.com/sirfidely/metala/internal/platform"
 )
 
@@ -72,6 +75,10 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		tok, pr, err := s.p.RegisterOperator(in)
+		if err == nil {
+			identifyPrincipal(pr, in.AdminEmail)
+			capturePrincipal(pr, in.AdminEmail, "operator_registered", nil)
+		}
 		respond(w, map[string]any{"token": tok, "principal": pr}, err)
 	})
 	mux.HandleFunc("POST /api/auth/driver", func(w http.ResponseWriter, r *http.Request) {
@@ -84,6 +91,10 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		tok, pr, err := s.p.DriverLogin(in.Phone, in.PIN, in.VehicleID)
+		if err == nil {
+			identifyPrincipal(pr, "")
+			capturePrincipal(pr, "", "driver_logged_in", nil)
+		}
 		respond(w, map[string]any{"token": tok, "principal": pr}, err)
 	})
 	mux.HandleFunc("POST /api/auth/otp/request", s.otpRequest)
@@ -112,6 +123,13 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		pay, err := s.p.CreatePurchase(pr, in.ProductID)
+		if err == nil {
+			capturePrincipal(pr, "", "purchase_started", map[string]any{
+				"product_id": pay.ProductID,
+				"operator_id": pay.OperatorID,
+				"amount":      pay.Amount,
+			})
+		}
 		respond(w, pay, err)
 	}))
 	mux.Handle("GET /api/me/budget", s.auth(func(w http.ResponseWriter, r *http.Request, pr platform.Principal) {
@@ -142,7 +160,11 @@ func (s *Server) Handler() http.Handler {
 		respond(w, map[string]any{"token": tok, "expires_at": exp}, err)
 	}))
 	mux.Handle("POST /api/me/cards/{uid}/block", s.auth(func(w http.ResponseWriter, r *http.Request, pr platform.Principal) {
-		respond(w, map[string]bool{"ok": true}, s.p.BlockMyCard(pr, r.PathValue("uid")))
+		err := s.p.BlockMyCard(pr, r.PathValue("uid"))
+		if err == nil {
+			capturePrincipal(pr, "", "card_blocked", nil)
+		}
+		respond(w, map[string]bool{"ok": true}, err)
 	}))
 	mux.Handle("GET /api/me/reservations", s.auth(func(w http.ResponseWriter, r *http.Request, pr platform.Principal) {
 		writeJSON(w, 200, s.p.MyReservations(pr))
@@ -155,10 +177,20 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		res, err := s.p.Reserve(pr, in.DepartureID)
+		if err == nil {
+			capturePrincipal(pr, "", "reservation_created", map[string]any{
+				"departure_id": res.DepartureID,
+				"operator_id":  res.OperatorID,
+			})
+		}
 		respond(w, res, err)
 	}))
 	mux.Handle("DELETE /api/reservations/{id}", s.auth(func(w http.ResponseWriter, r *http.Request, pr platform.Principal) {
-		respond(w, map[string]bool{"ok": true}, s.p.CancelReservation(pr, r.PathValue("id")))
+		err := s.p.CancelReservation(pr, r.PathValue("id"))
+		if err == nil {
+			capturePrincipal(pr, "", "reservation_cancelled", nil)
+		}
+		respond(w, map[string]bool{"ok": true}, err)
 	}))
 
 	// PSP (webhook signé)
@@ -169,6 +201,14 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		pay, err := s.p.HandlePSPWebhook(body, r.Header.Get("X-PSP-Signature"))
+		if err == nil && pay.Status == platform.PaymentSucceeded {
+			analytics.Capture(pay.TravelerID, "payment_completed", map[string]any{
+				"product_id":  pay.ProductID,
+				"operator_id": pay.OperatorID,
+				"amount":      pay.Amount,
+			})
+			analytics.LogInfo(r.Context(), "payment_settled")
+		}
 		respond(w, pay, err)
 	})
 
@@ -183,6 +223,15 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		v, err := s.p.Validate(pr, in)
+		if err == nil {
+			capturePrincipal(pr, "", "tap_validation_completed", map[string]any{
+				"status":  string(v.Status),
+				"reason":  v.Reason,
+				"channel": v.Channel,
+				"source":  v.Source,
+				"offline": v.Offline,
+			})
+		}
 		respond(w, v, err)
 	}))
 	mux.Handle("GET /api/scan/reservations", s.auth(func(w http.ResponseWriter, r *http.Request, pr platform.Principal) {
@@ -195,6 +244,9 @@ func (s *Server) Handler() http.Handler {
 	}))
 	mux.Handle("POST /api/scan/shift/end", s.auth(func(w http.ResponseWriter, r *http.Request, pr platform.Principal) {
 		v, err := s.p.EndShift(pr, bearer(r))
+		if err == nil {
+			capturePrincipal(pr, "", "shift_ended", nil)
+		}
 		respond(w, v, err)
 	}))
 	mux.Handle("GET /api/scan/config", s.auth(func(w http.ResponseWriter, r *http.Request, pr platform.Principal) {
@@ -209,6 +261,13 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		res, err := s.p.OfflineSync(pr, in.Txs)
+		if err == nil {
+			capturePrincipal(pr, "", "offline_sync_completed", map[string]any{
+				"synced":     res.Synced,
+				"duplicates": res.Duplicates,
+				"rejected":   res.Rejected,
+			})
+		}
 		respond(w, res, err)
 	}))
 	mux.Handle("POST /api/telemetry", s.auth(func(w http.ResponseWriter, r *http.Request, pr platform.Principal) {
@@ -245,7 +304,11 @@ func (s *Server) Handler() http.Handler {
 		if !readJSON(w, r, &in) {
 			return
 		}
-		respond(w, map[string]bool{"ok": true}, s.p.FreezeDevice(pr, r.PathValue("id"), in.Frozen))
+		err := s.p.FreezeDevice(pr, r.PathValue("id"), in.Frozen)
+		if err == nil {
+			capturePrincipal(pr, "", "device_freeze_changed", map[string]any{"frozen": in.Frozen})
+		}
+		respond(w, map[string]bool{"ok": true}, err)
 	}))
 	mux.Handle("POST /api/fleet/vehicles", s.auth(func(w http.ResponseWriter, r *http.Request, pr platform.Principal) {
 		var in platform.NewVehicle
@@ -253,6 +316,13 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		v, err := s.p.AddVehicle(pr, in)
+		if err == nil {
+			capturePrincipal(pr, "", "vehicle_added", map[string]any{
+				"mode":             string(in.Mode),
+				"has_line":         in.LineID != "",
+				"reservable_seats": in.ReservableSeats,
+			})
+		}
 		respond(w, v, err)
 	}))
 	mux.Handle("POST /api/fleet/stops", s.auth(func(w http.ResponseWriter, r *http.Request, pr platform.Principal) {
@@ -446,6 +516,11 @@ func (s *Server) otpVerify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tok, t, err := s.p.VerifyOTP(in.Phone, in.Code, in.Name)
+	if err == nil {
+		pr := platform.Principal{Role: platform.RoleTraveler, TravelerID: t.ID, Name: t.Name}
+		identifyPrincipal(pr, "")
+		capturePrincipal(pr, "", "traveler_authenticated", nil)
+	}
 	respond(w, map[string]any{"token": tok, "traveler": t}, err)
 }
 
@@ -458,6 +533,10 @@ func (s *Server) staffLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tok, pr, err := s.p.StaffLogin(in.Username, in.Password)
+	if err == nil {
+		identifyPrincipal(pr, in.Username)
+		capturePrincipal(pr, in.Username, "staff_logged_in", nil)
+	}
 	respond(w, map[string]any{"token": tok, "principal": pr}, err)
 }
 
@@ -470,6 +549,10 @@ func (s *Server) deviceLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tok, pr, err := s.p.DeviceLogin(in.DeviceID, in.Secret)
+	if err == nil {
+		identifyPrincipal(pr, "")
+		capturePrincipal(pr, "", "device_logged_in", nil)
+	}
 	respond(w, map[string]any{"token": tok, "principal": pr}, err)
 }
 
@@ -481,6 +564,66 @@ func bearer(r *http.Request) string {
 		return strings.TrimPrefix(h, "Bearer ")
 	}
 	return ""
+}
+
+// identifyPrincipal identifies a signed-in person once at the authentication
+// boundary. Driver IDs take precedence because a driver session also carries
+// the terminal ID.
+func identifyPrincipal(pr platform.Principal, fallbackDistinctID string) {
+	distinctID := distinctIDForPrincipal(pr, fallbackDistinctID)
+	if distinctID == "" {
+		return
+	}
+
+	properties := map[string]any{"role": string(pr.Role)}
+	if fallbackDistinctID != "" {
+		properties["email"] = fallbackDistinctID
+	}
+	if pr.Name != "" {
+		properties["name"] = pr.Name
+	}
+	if pr.OperatorID != "" {
+		properties["operator_id"] = pr.OperatorID
+	}
+	if pr.ShiftID != "" {
+		properties["shift_id"] = pr.ShiftID
+	}
+	if pr.TravelerID != "" {
+		properties["traveler_id"] = pr.TravelerID
+	}
+	if pr.DriverID != "" {
+		properties["driver_id"] = pr.DriverID
+	}
+	if pr.DeviceID != "" {
+		properties["device_id"] = pr.DeviceID
+	}
+	analytics.Identify(distinctID, properties)
+}
+
+// capturePrincipal attributes events to the authenticated actor using the
+// same stable-ID precedence as identification.
+func capturePrincipal(pr platform.Principal, fallbackDistinctID, event string, properties map[string]any) {
+	analytics.Capture(distinctIDForPrincipal(pr, fallbackDistinctID), event, properties)
+}
+
+func distinctIDForPrincipal(pr platform.Principal, fallbackDistinctID string) string {
+	if pr.TravelerID != "" {
+		return pr.TravelerID
+	}
+	if pr.DriverID != "" {
+		return pr.DriverID
+	}
+	if pr.DeviceID != "" {
+		return pr.DeviceID
+	}
+	if pr.OperatorID != "" {
+		return "operator_" + pr.OperatorID
+	}
+	if fallbackDistinctID == "" {
+		return ""
+	}
+	digest := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(fallbackDistinctID))))
+	return "staff_" + hex.EncodeToString(digest[:])
 }
 
 func (s *Server) auth(h func(http.ResponseWriter, *http.Request, platform.Principal)) http.Handler {
