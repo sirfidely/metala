@@ -3,6 +3,9 @@ import {
   createMap, VehicleLayer, subscribeVehicles, TZ,
 } from "/shared/metala.js";
 import { ic } from "/shared/icons.js";
+import { initAnalytics, track, screen, identify, resetAnalytics } from "/shared/analytics.js";
+
+initAnalytics("app");
 
 const $ = (s) => document.querySelector(s);
 const AWA_PHONE = "07 00 00 00 01";
@@ -68,6 +71,7 @@ async function verify() {
   S.token = r.token;
   sessionStore.set("metala.app.token", r.token);
   await enter();
+  track("voyageur_connecte");
 }
 async function loginAsAwa() { $("#phone").value = AWA_PHONE; await sendOtp(AWA_PHONE); await verify(); }
 $("#btn-otp").onclick = () => sendOtp($("#phone").value).catch((e) => toast(e.message, "error"));
@@ -85,6 +89,7 @@ async function refreshMe() {
 }
 async function enter() {
   S.me = await api("/api/me", { token: S.token });
+  identify(S.me.traveler?.id, { role: "voyageur" });
   $("#login").classList.add("hidden");
   $("#main").classList.remove("hidden");
   go("lines", {}, true);
@@ -122,6 +127,7 @@ async function render(keepScroll = false) {
   $("#view").scrollTop = keepScroll ? top : 0;
   bind($("#view"));
   if (V[name].after) V[name].after(args);
+  if (!keepScroll) screen(name);
 }
 
 function bind(root) {
@@ -346,6 +352,7 @@ async function searchTrip() {
   const tr = S.trip;
   const at = tr.when === "now" ? null : new Date(`${tr.date}T${tr.time}:00Z`).toISOString(); // Abidjan = GMT
   try { tr.results = await plan(tr.from, tr.to, tr.when, at); } catch (e) { toast(e.message, "error"); return; }
+  track("trajet_recherche", { quand: tr.when, resultats: tr.results.length, correspondance: tr.results.some((j) => j.legs.filter((l) => l.kind === "ride").length > 1) });
   render(true);
 }
 
@@ -439,6 +446,7 @@ function payTrip(j) {
           await api(`/api/dev/psp/${pay.id}/confirm?status=succeeded`, { method: "POST" });
         }
         await refreshMe();
+        track("trajet_paye", { montant: total, etapes: legs.length, moyen: method, modes: [...new Set(legs.map((l) => l.mode))], compagnies: [...new Set(legs.map((l) => l.operator_id))] });
         modal(`<div class="success"><div class="check">${ic("check", 42)}</div><strong>Trajet payé</strong><p>Vos tickets sont sur votre Metala Pass. Présentez la carte ou le QR à la montée.</p></div>
           <button class="pill-btn primary" id="ok" style="width:100%">OK</button>`, () => ($("#ok").onclick = () => { closeModal(); render(true); }));
       } catch (e) { closeModal(); toast(e.message, "error"); }
@@ -529,6 +537,7 @@ V.pass = async ({ tab = "card" } = {}) => {
 V.pass.after = ({ tab = "card" } = {}) => {
   document.querySelectorAll(".seg [data-t]").forEach((b) => (b.onclick = () => { S.route.args = { tab: b.dataset.t }; render(); }));
   if (tab === "phone") {
+    track("qr_paiement_affiche");
     const refresh = async () => {
       try {
         const r = await api("/api/me/pay-token", { token: S.token });
@@ -550,7 +559,7 @@ V.pass.after = ({ tab = "card" } = {}) => {
   if (b) b.onclick = () => modal(`<div class="success"><div class="check ko">${ic("ban", 40)}</div><strong>Bloquer la carte ?</strong><p>Refusée partout. Solde conservé.</p></div>
       <button class="pill-btn danger" id="blk-ok" style="width:100%">Bloquer</button><button class="pill-btn ghost" id="blk-no" style="width:100%">Annuler</button>`, () => {
     $("#blk-no").onclick = closeModal;
-    $("#blk-ok").onclick = async () => { await api(`/api/me/cards/${card().uid}/block`, { method: "POST", token: S.token }); closeModal(); render(); };
+    $("#blk-ok").onclick = async () => { await api(`/api/me/cards/${card().uid}/block`, { method: "POST", token: S.token }); track("pass_bloque"); closeModal(); render(); };
   });
 };
 
@@ -611,7 +620,7 @@ V.budget.after = () => {
     <button class="pill-btn primary" id="bg-ok" style="width:100%">Enregistrer</button>`, () => {
     $("#bg-x").onclick = closeModal;
     $("#bg-ok").onclick = async () => {
-      try { await api("/api/me/budget", { method: "PUT", token: S.token, body: { amount: Number($("#bg-v").value.replace(/\D/g, "")) || 0 } }); closeModal(); render(); }
+      try { await api("/api/me/budget", { method: "PUT", token: S.token, body: { amount: Number($("#bg-v").value.replace(/\D/g, "")) || 0 } }); track("budget_defini", { montant: Number($("#bg-v").value.replace(/\D/g, "")) || 0 }); closeModal(); render(); }
       catch (e) { toast(e.message, "error"); }
     };
   });
@@ -664,6 +673,8 @@ V.profile = async () => {
 };
 V.profile.after = () => ($("#logout").onclick = async () => {
   await api("/api/auth/logout", { method: "POST", token: S.token }).catch(() => {});
+  track("voyageur_deconnecte");
+  resetAnalytics();
   sessionStore.del("metala.app.token");
   location.href = location.pathname;
 });
@@ -676,6 +687,7 @@ V.places = async () => {
 V.places.after = () => document.querySelectorAll("[data-k]").forEach((b) => (b.onclick = () => pickPlace(b.dataset.k === "home" ? "Maison" : "Travail", async (p) => {
   const k = b.dataset.k;
   await api("/api/me/places", { method: "PUT", token: S.token, body: { [k]: { name: p.name, lat: p.lat, lon: p.lon } } });
+  track("lieu_enregistre", { lieu: k });
   await refreshMe();
   S.trip = null;
   render();
@@ -733,6 +745,7 @@ async function pay(p, method) {
     const r = await api(`/api/dev/psp/${payment.id}/confirm?status=succeeded`, { method: "POST" });
     await refreshMe();
     const ok = r.status === "succeeded";
+    track(p.kind === "wallet" ? "pass_recharge" : "titre_achete", { montant: p.price, type: p.kind, compagnie: p.operator_id, moyen: m.id, reussi: ok });
     modal(`<div class="success"><div class="check ${ok ? "" : "ko"}">${ic(ok ? "check" : "x", 42)}</div>
       <strong>${ok ? (p.kind === "wallet" ? `+ ${fcfa(p.price)}` : "Titre ajouté") : "Paiement refusé"}</strong>
       <p>${ok ? (p.kind === "wallet" ? `Solde : ${fcfa(card()?.balance)}` : esc(p.name)) : "Aucun débit"}</p></div>
@@ -754,6 +767,7 @@ async function openBooking(lineId) {
     document.querySelectorAll("[data-dep]").forEach((b) => (b.onclick = async () => {
       try {
         await api("/api/reservations", { method: "POST", token: S.token, body: { departure_id: b.dataset.dep } });
+        track("place_reservee", { ligne: l.code, mode: l.mode, compagnie: l.operator_id });
         modal(`<div class="success"><div class="check">${ic("check", 42)}</div><strong>Place réservée</strong><p>Profil › Mes trajets</p></div><button class="pill-btn primary" id="ok" style="width:100%">OK</button>`, () => ($("#ok").onclick = closeModal));
       } catch (e) { toast(e.message, "error"); }
     }));

@@ -1,5 +1,8 @@
 import { api, esc, sessionStore, store, toast, fcfa, hhmm } from "/shared/metala.js";
 import { ic } from "/shared/icons.js";
+import { initAnalytics, track, identify, resetAnalytics } from "/shared/analytics.js";
+
+initAnalytics("scan");
 
 // Metala Scan : l'application mobile des agents transporteurs.
 // Encaisser (QR par la caméra, carte NFC, compteur), suivre les réservations,
@@ -87,6 +90,8 @@ async function login() {
     const r = await api("/api/auth/driver", { method: "POST", body: { phone: S.driver.phone, pin: S.pin, vehicle_id: S.vehicle.vehicle_id } });
     S.token = r.token;
     sessionStore.set("metala.scan.token", r.token);
+    identify(S.driver.id, { role: "conducteur", compagnie: S.vehicle.operator_id });
+    track("service_demarre", { vehicule: S.vehicle.vehicle_id, ligne: S.vehicle.line_code || null, mode: S.vehicle.mode, compagnie: S.vehicle.operator_id });
     start();
   } catch (e) { toast(e.message, "error"); S.pin = ""; stepPhone(); }
 }
@@ -100,6 +105,7 @@ async function start() {
   $("#t-chip").innerHTML = `${ic(MODE_IC[S.vehicle.mode] || "bus", 18)}${esc(S.vehicle.line_code || "")}`;
   $("#t-veh").textContent = S.vehicle.plate;
   $("#t-driver").textContent = S.driver.name;
+  identify(S.driver.id, { role: "conducteur", compagnie: S.vehicle.operator_id });
   await refreshConfig();
   setOnline(true);
   await Promise.all([refreshShift(), refreshResa()]);
@@ -110,6 +116,7 @@ async function start() {
 
 document.querySelectorAll(".tabs button").forEach((b) => (b.onclick = () => showTab(b.dataset.t)));
 function showTab(t) {
+  track("ecran_vu", { ecran: t });
   S.tab = t;
   document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("on", b.dataset.t === t));
   ({ pay: renderPay, resa: renderResa, takings: renderTakings })[t]();
@@ -157,6 +164,7 @@ async function sync() {
     S.queue = [];
     store.set(qKey(), "[]");
     renderNet();
+    track("hors_ligne_synchronise", { transmis: r.synced || 0 });
     if (r.synced) toast(`${r.synced} paiement${r.synced > 1 ? "s" : ""} hors ligne transmis`, "success");
     refreshShift();
   } catch {}
@@ -270,6 +278,7 @@ async function chargeOnline(card, token) {
     }
     const v = await api("/api/scan/validate", { method: "POST", token: S.token, body: req, timeout: 3000 });
     const kind = v.status === "already_validated" ? "already" : v.status;
+    track("encaissement", { statut: v.status, canal: v.channel || (token ? "phone" : "card"), source: v.source || null, montant: v.debited || 0, hors_ligne: false, mode: S.vehicle.mode, compagnie: S.vehicle.operator_id });
     showResult({ kind, message: v.message, amount: v.debited, tags: [v.channel === "phone" ? "QR" : "carte", v.source === "wallet" ? "porte-monnaie" : v.source === "title" ? "titre" : ""] });
     refreshShift(); refreshResa();
   } catch (e) {
@@ -296,6 +305,7 @@ async function chargeOffline(card) {
     S.recent.push({ uid: card.uid, at: Date.now() });
     renderNet();
     showResult({ kind: "accepted", message: "Payé", amount: tx.amount, tags: ["hors ligne", `solde ${fcfa(tx.balance)}`] });
+    track("encaissement", { statut: "accepted", canal: "card", source: "wallet", montant: tx.amount, hors_ligne: true, mode: S.vehicle.mode, compagnie: S.vehicle.operator_id });
   } catch (e) {
     showResult({ kind: "rejected", message: e.status === 409 ? "Solde insuffisant" : "Refusé" });
   }
@@ -363,6 +373,7 @@ async function endShift() {
   try {
     const sv = await api("/api/scan/shift/end", { method: "POST", token: S.token });
     const mins = Math.round((new Date(sv.shift.end) - new Date(sv.shift.start)) / 60000);
+    track("service_termine", { recette: sv.revenue, passagers: sv.passengers, refus: sv.refused, minutes: mins });
     sheet(`<h3>Service terminé</h3><p class="muted" style="margin:0 0 14px">${esc(sv.vehicle.plate)} · ${Math.floor(mins / 60)} h ${String(mins % 60).padStart(2, "0")}</p>
       <div class="stats"><div class="stat big"><small>Recette</small><b>${fcfa(sv.revenue)}</b><span>${pax(sv.passengers)} · ${sv.refused} refus</span></div></div>
       <button class="btn-main" id="bye">Fermer</button>`);
@@ -374,6 +385,7 @@ function logout() {
   clearInterval(S.poll);
   closeSheet();
   sessionStore.del("metala.scan.token");
+  resetAnalytics();
   S.token = null; S.pin = ""; S.shift = null;
   $("#run").classList.add("hidden");
   $("#login").classList.remove("hidden");

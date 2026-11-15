@@ -122,7 +122,24 @@ Détails : [`docs/architecture.md`](docs/architecture.md), [`docs/api.md`](docs/
 
 Carte : OpenFreeMap (données OpenStreetMap), repli automatique sur OpenStreetMap puis CARTO.
 
+## Mesure d'usage (PostHog)
+
+Les trois applications envoient des événements d'usage à PostHog (`web/static/shared/analytics.js`, clé de
+projet publique, région US par défaut ; pour un projet européen, remplacer l'hôte par `https://eu.i.posthog.com`).
+Chaque événement porte la propriété `app` : `app`, `scan`, `gestion` ou `accueil`.
+
+| Application | Événements |
+|---|---|
+| Metala App | `voyageur_connecte`, `trajet_recherche`, `trajet_paye`, `titre_achete`, `pass_recharge`, `place_reservee`, `qr_paiement_affiche`, `budget_defini`, `lieu_enregistre`, `pass_bloque`, `voyageur_deconnecte` |
+| Metala Scan | `service_demarre`, `encaissement` (statut, canal, source, montant, hors ligne), `hors_ligne_synchronise`, `service_termine` |
+| Metala Gestion | `gestion_connecte`, `compagnie_inscrite`, `ligne_creee`, `arret_cree`, `tarif_cree`, `tarif_modifie`, `vehicule_ajoute`, `conducteur_ajoute`, `compagnie_ajoutee_par_admin` |
+| Toutes | `ecran_vu` (écran affiché), pages vues et clics |
+
+Aucune donnée personnelle n'est envoyée : les personnes sont identifiées par leur identifiant interne
+(jamais téléphone, nom ou e-mail), les textes sont masqués dans les clics capturés, et l'enregistrement
+des sessions est désactivé. PostHog ignore les navigateurs automatisés (robots, tests).
+
 ## Licences
 
-Code : GENIUS GROUPS SAS. MapLibre GL JS (BSD-3-Clause), qrcode-generator (MIT), jsQR (Apache-2.0) sont
+Code : GENIUS GROUPS SAS. MapLibre GL JS (BSD-3-Clause), qrcode-generator (MIT), jsQR (Apache-2.0), posthog-js (MIT) sont
 inclus dans `web/static/vendor/`. Fond de carte © OpenFreeMap, OpenMapTiles, contributeurs OpenStreetMap.

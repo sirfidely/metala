@@ -18,6 +18,7 @@
   a.app span.i { width: 46px; height: 46px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 22px; flex: none; }
   a.app::after { content: "›"; margin-left: auto; color: #8fadab; font-size: 22px; }
 </style>
+<script src="/vendor/posthog-js-1.438.21/posthog.js"></script>
 </head>
 <body>
 <div class="wrap">
@@ -28,5 +29,6 @@
   <a class="app" href="/scan/"><span class="i" style="background:#f5a24b">📟</span><span><b>Metala Scan</b><small>Agents transporteurs · encaissement, réservations, recette</small></span></a>
   <a class="app" href="/fleet/"><span class="i" style="background:#c2410c">🖥️</span><span><b>Metala Gestion</b><small>Compagnies · flotte, lignes, conducteurs, tarifs</small></span></a>
 </div>
+<script type="module">import { initAnalytics } from "/shared/analytics.js"; initAnalytics("accueil");</script>
 </body>
 </html>

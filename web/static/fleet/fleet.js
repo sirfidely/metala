@@ -1,4 +1,7 @@
 import { api, fcfa, hhmm, ddmm, esc, toast, sessionStore, freshnessBadge, createMap, drawNetwork, fitLines, VehicleLayer } from "/shared/metala.js";
+import { initAnalytics, track, identify, resetAnalytics } from "/shared/analytics.js";
+
+initAnalytics("gestion");
 
 // Metala Gestion : back-office des compagnies de transport (administrateur)
 // et de Metala (super administrateur).
@@ -40,7 +43,7 @@ function signedIn(r) {
   enter();
 }
 async function login() {
-  try { signedIn(await api("/api/auth/staff", { method: "POST", body: { username: $("#u").value, password: $("#pw").value } })); }
+  try { signedIn(await api("/api/auth/staff", { method: "POST", body: { username: $("#u").value, password: $("#pw").value } })); track("gestion_connecte"); }
   catch (e) { toast(e.message, "error"); }
 }
 $("#btn-login").onclick = login;
@@ -50,11 +53,12 @@ $("#btn-register").onclick = async () => {
     const r = await api("/api/auth/register", { method: "POST", body: { name: $("#r-name").value, kind: $("#r-kind").value, admin_email: $("#r-mail").value, password: $("#r-pw").value } });
     S.network = await api("/api/network");
     toast("Compagnie inscrite : commencez par créer une ligne", "success");
+    track("compagnie_inscrite", { categorie: $("#r-kind").value });
     signedIn(r);
     setView("lines");
   } catch (e) { toast(e.message, "error"); }
 };
-$("#logout").onclick = () => { sessionStore.del("metala.fleet.token"); sessionStore.del("metala.fleet.pr"); location.reload(); };
+$("#logout").onclick = () => { resetAnalytics(); sessionStore.del("metala.fleet.token"); sessionStore.del("metala.fleet.pr"); location.reload(); };
 
 // ---------- Aides ----------
 const isAdmin = () => S.pr.role === "platform_admin";
@@ -71,6 +75,7 @@ async function reloadNetwork() { S.network = await api("/api/network"); }
 async function enter() {
   $("#login").classList.add("hidden");
   $("#app").classList.remove("hidden");
+  identify(isAdmin() ? "gestion_metala" : `gestion_${S.pr.operator_id}`, { role: S.pr.role, compagnie: S.pr.operator_id || null });
   $("#who").innerHTML = `<b>${isAdmin() ? "Super administrateur" : "Administrateur"}</b><br>${isAdmin() ? "Metala · toutes les compagnies" : esc(opName(S.pr.operator_id))}`;
   if (isAdmin()) {
     document.querySelectorAll(".admin-only").forEach((x) => x.classList.remove("hidden"));
@@ -91,6 +96,7 @@ function fillOpFilter() {
 const TITLES = { dash: "Tableau de bord", lines: "Lignes", fares: "Tarifs", vehicles: "Véhicules", drivers: "Conducteurs", payments: "Paiements", recon: "Recettes", operators: "Compagnies", cards: "Cartes Metala Pass" };
 function setView(v) {
   S.view = v;
+  track("ecran_vu", { ecran: v });
   if (S.map) { S.map.remove(); S.map = null; S.layer = null; }
   document.querySelectorAll("#nav button").forEach((b) => b.classList.toggle("active", b.dataset.v === v));
   $("#view-title").textContent = TITLES[v];
@@ -227,6 +233,7 @@ function buildLineForm() {
         last_dep: $("#nl-last").value, reservable: $("#nl-resa").checked, stop_ids: nl.stops } });
       await reloadNetwork();
       toast(`Ligne ${l.code} publiée : visible des voyageurs`, "success");
+      track("ligne_creee", { mode: l.mode, arrets: l.stop_ids?.length || 0, reservable: !!l.reservable });
       S.newLine = null;
       setView("lines");
     } catch (e) { toast(e.message, "error"); }
@@ -265,7 +272,7 @@ function buildLineForm() {
   $("#ns-go").onclick = async () => {
     if (!clicked) return;
     try {
-      const st = await api("/api/fleet/stops", { method: "POST", token: S.token, body: { name: $("#ns-name").value, lat: clicked.lat, lon: clicked.lng } });
+      const st = await api("/api/fleet/stops", { method: "POST", token: S.token, body: { name: $("#ns-name").value, lat: clicked.lat, lon: clicked.lng } }); track("arret_cree");
       await reloadNetwork();
       nl.stops.push(st.id);
       $("#ns-name").value = "";
@@ -291,7 +298,7 @@ VIEWS.fares = {
     $("#np-kind").onchange = (e) => { $("#np-trips").disabled = e.target.value !== "carnet"; };
     $("#np-go").onclick = async () => {
       try {
-        await api("/api/fleet/products", { method: "POST", token: S.token, body: { operator_id: scopeOp(), name: $("#np-name").value, kind: $("#np-kind").value, trips: Number($("#np-trips").value), validity_days: Number($("#np-days").value), price: Number($("#np-price").value) } });
+        await api("/api/fleet/products", { method: "POST", token: S.token, body: { operator_id: scopeOp(), name: $("#np-name").value, kind: $("#np-kind").value, trips: Number($("#np-trips").value), validity_days: Number($("#np-days").value), price: Number($("#np-price").value) } }); track("tarif_cree", { type: $("#np-kind").value, prix: Number($("#np-price").value) });
         toast("Tarif ajouté : proposé aux voyageurs dans Metala App", "success");
         $("#np-name").value = ""; $("#np-price").value = "";
         VIEWS.fares.refresh(true);
@@ -309,7 +316,7 @@ VIEWS.fares = {
       </tbody></table><p class="small muted">Un changement de prix s’applique aux prochains achats ; les titres déjà vendus gardent leur prix.</p></div>`;
     $("#fares-table").querySelectorAll("[data-save]").forEach((b) => (b.onclick = async () => {
       try {
-        await api(`/api/fleet/products/${b.dataset.save}`, { method: "PUT", token: S.token, body: { price: Number($(`[data-p="${b.dataset.save}"]`).value) } });
+        await api(`/api/fleet/products/${b.dataset.save}`, { method: "PUT", token: S.token, body: { price: Number($(`[data-p="${b.dataset.save}"]`).value) } }); track("tarif_modifie");
         toast("Prix mis à jour", "success");
         VIEWS.fares.refresh(true);
       } catch (e) { toast(e.message, "error"); }
@@ -330,7 +337,7 @@ VIEWS.vehicles = {
     if (op) $("#nv-go").onclick = async () => {
       const line = $("#nv-line").value;
       try {
-        const v = await api("/api/fleet/vehicles", { method: "POST", token: S.token, body: { operator_id: op, plate: $("#nv-plate").value, line_id: line, mode: line ? "" : "taxi", reservable_seats: Number($("#nv-seats").value) || 0 } });
+        const v = await api("/api/fleet/vehicles", { method: "POST", token: S.token, body: { operator_id: op, plate: $("#nv-plate").value, line_id: line, mode: line ? "" : "taxi", reservable_seats: Number($("#nv-seats").value) || 0 } }); track("vehicule_ajoute", { taxi: !line });
         toast(`${v.plate} enregistré`, "success");
         $("#nv-plate").value = "";
         refresh();
@@ -366,7 +373,7 @@ VIEWS.drivers = {
       `<div id="drv-table"></div><div id="drv-detail" class="panel-detail"></div>`;
     if (op) $("#nd-go").onclick = async () => {
       try {
-        const d = await api("/api/fleet/drivers", { method: "POST", token: S.token, body: { operator_id: op, name: $("#nd-name").value, phone: $("#nd-phone").value, pin: $("#nd-pin").value } });
+        const d = await api("/api/fleet/drivers", { method: "POST", token: S.token, body: { operator_id: op, name: $("#nd-name").value, phone: $("#nd-phone").value, pin: $("#nd-pin").value } }); track("conducteur_ajoute");
         toast(`${d.name} ajouté`, "success");
         ["#nd-name", "#nd-phone", "#nd-pin"].forEach((s) => ($(s).value = ""));
         refresh();
@@ -440,7 +447,7 @@ VIEWS.operators = {
       <button class="btn" id="no-go">Inscrire</button></div></div><div id="ops-table"></div>`;
     $("#no-go").onclick = async () => {
       try {
-        const o = await api("/api/admin/operators", { method: "POST", token: S.token, body: { name: $("#no-name").value, kind: $("#no-kind").value, admin_email: $("#no-mail").value, password: $("#no-pw").value } });
+        const o = await api("/api/admin/operators", { method: "POST", token: S.token, body: { name: $("#no-name").value, kind: $("#no-kind").value, admin_email: $("#no-mail").value, password: $("#no-pw").value } }); track("compagnie_ajoutee_par_admin", { categorie: $("#no-kind").value });
         toast(`${o.name} inscrite`, "success");
         await reloadNetwork(); fillOpFilter();
         ["#no-name", "#no-mail", "#no-pw"].forEach((s) => ($(s).value = ""));
